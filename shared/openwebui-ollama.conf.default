@@ -1,0 +1,70 @@
+# ============================================================
+#  Open WebUI + Ollama QPKG configuration
+#  File location on the NAS: <QPKG install dir>/openwebui-ollama.conf
+#  Apply changes with:  /etc/init.d/openwebui-ollama.sh restart
+#  (or restart the app from App Center)
+# ============================================================
+
+# --- Ollama (backend) -----------------------------------------
+#OLLAMA_IMAGE="ollama/ollama:latest"
+#OLLAMA_CONTAINER_NAME="owui-ollama"
+
+# Model storage (/root/.ollama inside the container). Models are large
+# (multi-GB each); point this at a volume with enough free space.
+# Auto-defaults to <QPKG install dir>/data/ollama.
+#OLLAMA_DATA_PATH="/share/CACHEDEV1_DATA/OpenWebUIOllama/ollama"
+
+# Publish the raw Ollama API (11434) to the LAN. Leave empty (default)
+# to keep it reachable only from the open-webui container over the
+# internal Docker network — safer, and all you normally need.
+#OLLAMA_PUBLISH_PORT=""
+
+# How many requests Ollama processes in parallel / how many models it
+# keeps loaded at once. Leave unset to use Ollama's own defaults.
+#OLLAMA_NUM_PARALLEL=""
+#OLLAMA_MAX_LOADED_MODELS=""
+
+# Extra "docker run" arguments for the Ollama container (advanced).
+#OLLAMA_EXTRA_ARGS=""
+
+# --- GPU acceleration --------------------------------------------
+# auto (default): use the NVIDIA GPU if Container Station's docker
+#   reports an nvidia runtime, otherwise fall back to CPU.
+# on:  always pass --gpus all (fails loudly if no GPU runtime present).
+# off: always run CPU-only.
+#GPU_MODE="auto"
+
+# --- Open WebUI (frontend) --------------------------------------
+#WEBUI_IMAGE="ghcr.io/open-webui/open-webui:main"
+#WEBUI_CONTAINER_NAME="owui-frontend"
+
+# Chat history, uploaded documents and the RAG vector store
+# (/app/backend/data inside the container).
+# Auto-defaults to <QPKG install dir>/data/webui.
+#WEBUI_DATA_PATH="/share/CACHEDEV1_DATA/OpenWebUIOllama/webui"
+
+# Port exposed on the NAS. The App Center icon link follows this value.
+#WEBUI_PORT="3000"
+
+# Session signing key. Auto-generated once on first install and saved
+# below by the service script — do not share this value.
+#WEBUI_SECRET_KEY=""
+
+# Guard against a runaway number of subprocesses (document parsing,
+# etc.) taking down the NAS.
+#WEBUI_PIDS_LIMIT="512"
+
+# Extra "docker run" arguments for the Open WebUI container (advanced).
+#WEBUI_EXTRA_ARGS=""
+
+# --- Shared ---------------------------------------------------
+# Private bridge network the two containers talk to each other over
+# (open-webui reaches Ollama at http://<OLLAMA_CONTAINER_NAME>:11434).
+#NETWORK_NAME="owui-net"
+
+# IANA timezone for correct logging/scheduling. Auto-detected from QTS
+# when unset.
+#TZ="Asia/Taipei"
+
+# Seconds to wait for a clean container shutdown.
+#STOP_TIMEOUT="60"

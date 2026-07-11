@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open WebUI + Ollama on QNAP</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#181c26; --card2:#1e2330; --text:#e8eaf0; --muted:#9aa3b5;
+    --accent:#3ecf8e; --ok:#3ecf8e; --warn:#ffb020; --err:#ff5d5d; --border:#2a3042;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI","Noto Sans TC",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.65}
+  .wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+  header{display:flex;align-items:center;gap:16px;margin-bottom:28px}
+  .logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#3ecf8e,#2f8fff);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#0f1117}
+  h1{font-size:22px;margin:0}
+  h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:18px}
+  .card h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .pill{display:inline-block;padding:3px 12px;border-radius:999px;font-size:13px;font-weight:600}
+  .pill.ok{background:rgba(62,207,142,.15);color:var(--ok)}
+  .pill.warn{background:rgba(255,176,32,.15);color:var(--warn)}
+  .pill.err{background:rgba(255,93,93,.15);color:var(--err)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  td{padding:6px 0;vertical-align:top}
+  td:first-child{color:var(--muted);width:34%;padding-right:12px}
+  code{background:var(--card2);border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:13px;color:#a8f0cf;word-break:break-all}
+  pre{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:14px;overflow-x:auto;font-size:13px;color:#a8f0cf}
+  .callout{border-left:4px solid var(--accent);background:var(--card2);border-radius:0 10px 10px 0;padding:12px 16px;margin:12px 0;font-size:14px}
+  .callout.warn{border-left-color:var(--warn)}
+  .callout b{color:#fff}
+  ul,ol{padding-left:22px;margin:8px 0}
+  li{margin:4px 0;font-size:14px}
+  a{color:#8fd6ff}
+  .muted{color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">AI</div>
+    <h1>Open WebUI + Ollama <small>官方 Docker 映像 · Container Station · QPKG 管理外殼</small></h1>
+  </header>
+
+  <div class="card">
+    <h2>目前狀態 <span id="state" class="pill warn">讀取中…</span></h2>
+    <table id="info">
+      <tr><td>Ollama 容器</td><td id="f-ollama-c">–</td></tr>
+      <tr><td>Ollama 映像檔</td><td id="f-ollama-i">–</td></tr>
+      <tr><td>Open WebUI 容器</td><td id="f-webui-c">–</td></tr>
+      <tr><td>Open WebUI 映像檔</td><td id="f-webui-i">–</td></tr>
+      <tr><td>網頁埠</td><td id="f-port">–</td></tr>
+      <tr><td>GPU 加速</td><td id="f-gpu">–</td></tr>
+      <tr><td>模型儲存路徑</td><td id="f-odata">–</td></tr>
+      <tr><td>WebUI 資料路徑</td><td id="f-wdata">–</td></tr>
+      <tr><td>時區</td><td id="f-tz">–</td></tr>
+      <tr><td>狀態更新時間</td><td id="f-updated">–</td></tr>
+    </table>
+    <div id="pull-box" style="display:none">
+      <p class="muted" style="margin-bottom:4px">映像檔下載進度（每 5 秒自動更新）：</p>
+      <pre id="pull-pre" style="max-height:220px;overflow:auto"></pre>
+    </div>
+    <p class="muted">此頁每 5 秒自動更新。當 Open WebUI 準備就緒後，這個畫面會自動被真正的 Open WebUI 介面取代（同一個網址）。</p>
+  </div>
+
+  <div class="card">
+    <h2>ℹ️ 為什麼會看到這個畫面？</h2>
+    <p style="font-size:14px">
+      本套件安裝後不會內含任何 AI 模型或應用程式本體，而是在<b>背景</b>請 Container Station
+      下載官方的 <code>ollama/ollama</code> 與 <code>ghcr.io/open-webui/open-webui</code> 映像檔。
+      在下載完成前，這個輕量狀態頁會暫時佔用網頁埠，讓你可以確認下載進度；
+      下載完成後，套件會自動建立並啟動兩個容器，Open WebUI 的真正介面就會出現在同一個網址上，不需要手動重新整理設定。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>⚡ GPU 加速</h2>
+    <p style="font-size:14px">
+      套件會自動偵測 Container Station 是否已啟用 NVIDIA GPU runtime（需先在 App Center 安裝官方 NVIDIA GPU Driver，
+      且機型支援獨立顯示卡）。偵測到才會將 <code>--gpus all</code> 傳給 Ollama 容器；沒有偵測到則自動以 CPU 模式運作，
+      並在系統紀錄留下提示，套件本身在兩種情況下都能正常啟動。
+    </p>
+    <div class="callout">
+      目前 GPU 狀態：<b id="gpu-detail">讀取中…</b>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>💾 資料存放位置</h2>
+    <p style="font-size:14px">
+      Ollama 下載的模型檔案通常單一檔案就有數 GB 到數十 GB，請確保
+      <code id="c-odata2">模型儲存路徑</code> 所在磁碟區有足夠空間。Open WebUI 的聊天記錄、上傳文件與 RAG
+      向量資料庫則存放在 <code id="c-wdata2">WebUI 資料路徑</code>。兩者預設都在套件安裝目錄下的
+      <code>data/</code> 資料夾，重灌套件不會遺失資料。
+    </p>
+    <div class="callout warn">
+      <b>變更路徑：</b>編輯 QPKG 安裝目錄下的 <code>openwebui-ollama.conf</code>，設定
+      <code>OLLAMA_DATA_PATH</code> / <code>WEBUI_DATA_PATH</code> 後重新啟動本套件即可套用。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🚀 首次使用</h2>
+    <ol>
+      <li>安裝完成後，套件會於<b>背景</b>下載官方映像檔（視網速需數分鐘到數十分鐘，模型執行環境本體較大）。</li>
+      <li>下載完成後開啟本頁（同一網址）即可看到 Open WebUI 登入畫面；<b>第一個註冊的帳號會自動成為管理員</b>。</li>
+      <li>Open WebUI 已預先設定好連到內部的 Ollama 服務（<code>OLLAMA_BASE_URL</code> 已自動指向同一私有網路內的 Ollama 容器），
+        登入後直接在介面右上角「選擇模型」搜尋並下載模型即可開始對話。</li>
+      <li>若要開放註冊給團隊其他成員，或改成邀請制，可在 Open WebUI 的「管理員設定」內調整，不需要修改本套件設定。</li>
+    </ol>
+    <p class="muted">下載進度：<code>&lt;QPKG 安裝目錄&gt;/logs/pull.log</code>；服務記錄：<code>logs/openwebui-ollama.log</code>。</p>
+  </div>
+
+  <div class="card">
+    <h2>🔧 常用維護指令（SSH）</h2>
+    <pre>/etc/init.d/openwebui-ollama.sh status    # 檢視狀態
+/etc/init.d/openwebui-ollama.sh restart   # 重新啟動
+/etc/init.d/openwebui-ollama.sh update    # 更新官方映像並重建容器（資料保留）
+/etc/init.d/openwebui-ollama.sh diag      # 診斷 GPU / 映像檔 / 網路連線</pre>
+  </div>
+
+  <p class="muted">
+    本套件僅包含管理指令碼與此狀態頁，不內含任何 Ollama 或 Open WebUI 程式本體；分別由
+    <a href="https://github.com/ollama/ollama" target="_blank" rel="noopener">Ollama 官方映像</a> 與
+    <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">Open WebUI 官方映像</a> 提供。
+    套件結構參考 <a href="https://github.com/qnap-dev/containerized-qpkg" target="_blank" rel="noopener">qnap-dev/containerized-qpkg</a>。
+  </p>
+</div>
+
+<script>
+(function(){
+  var stateMap = {
+    "running":            ["ok",   "執行中"],
+    "starting":           ["warn", "啟動中…"],
+    "stopped":            ["warn", "已停止"],
+    "downloading-image":  ["warn", "映像檔下載中…"],
+    "pull-failed":        ["err",  "映像檔下載失敗"],
+    "no-container-engine":["err",  "找不到 Container Station"],
+    "error":              ["err",  "發生錯誤"]
+  };
+  function put(id, v){ document.getElementById(id).textContent = v || "（未設定）"; }
+  function loadPullProgress(show){
+    var box = document.getElementById("pull-box");
+    if (!show) { box.style.display = "none"; return; }
+    fetch("pull-progress.txt", {cache:"no-store"}).then(function(r){
+      return r.ok ? r.text() : "";
+    }).then(function(t){
+      if (t) {
+        box.style.display = "block";
+        document.getElementById("pull-pre").textContent = t;
+      }
+    }).catch(function(){});
+  }
+  var missCount = 0;
+  function load(){
+    fetch("status.json", {cache:"no-store"}).then(function(r){ return r.json(); }).then(function(s){
+      missCount = 0;
+      var el = document.getElementById("state");
+      var m = stateMap[s.state] || ["warn", s.state];
+      el.className = "pill " + m[0];
+      el.textContent = m[1];
+      put("f-ollama-c", s.ollama_container);
+      put("f-ollama-i", s.ollama_image);
+      put("f-webui-c", s.webui_container);
+      put("f-webui-i", s.webui_image);
+      put("f-port", s.webui_port);
+      put("f-odata", s.ollama_data);
+      put("f-wdata", s.webui_data);
+      put("f-tz", s.tz);
+      put("f-updated", s.updated_at);
+      var gpuText = s.gpu === "nvidia" ? "已偵測到 NVIDIA GPU，Ollama 使用 --gpus all 加速" :
+                    (s.gpu_mode === "off" ? "已停用（GPU_MODE=off，CPU 模式）" : "未偵測到可用 GPU，Ollama 以 CPU 模式運作");
+      put("f-gpu", s.gpu === "nvidia" ? "✅ NVIDIA GPU" : "CPU 模式");
+      document.getElementById("gpu-detail").textContent = gpuText;
+      loadPullProgress(s.state === "downloading-image" || s.state === "pull-failed");
+    }).catch(function(){
+      // The real Open WebUI container may already have taken over this
+      // port mid-transition; reload so the browser picks it up.
+      missCount++;
+      var el = document.getElementById("state");
+      el.className = "pill warn";
+      el.textContent = "連線中…";
+      if (missCount >= 2) { window.location.reload(); }
+    });
+  }
+  load();
+  setInterval(load, 5000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+# Open WebUI + Ollama QPKG installation routines (QDK)
+#
+# The QPKG is a thin shell: management scripts + a first-run status page
+# only. No Docker image is bundled — right after installation we ask the
+# system container engine (Container Station) to download the official
+# ollama/ollama and open-webui images in the background, so App Center
+# stays responsive.
+#
+# NOTE: QPKG_NAME is "OpenWebUIOllama" on purpose, to avoid colliding
+# with any current/future QNAP Store app named "OpenWebUI" or "Ollama".
+
+######### Uninstall routines (embedded into the uninstall script) #########
+
+PKG_PRE_REMOVE="{
+    # Stop and remove the containers + network; model/chat data is kept on disk.
+    ${SYS_QPKG_DIR}/openwebui-ollama.sh remove >/dev/null 2>&1 || true
+}"
+
+PKG_MAIN_REMOVE="{
+    true
+}"
+
+PKG_POST_REMOVE="{
+    /sbin/write_log \"[OpenWebUIOllama] Removed. Your Ollama models and Open WebUI data were kept on disk; delete the OpenWebUIOllama data folder manually if you no longer need it.\" 4
+}"
+
+######### Install routines #########
+
+pkg_init(){
+    true
+}
+
+pkg_check_requirement(){
+    # QPKG_REQUIRE already enforces Container Station; double-check the
+    # docker CLI is actually reachable and fail early with a clear hint.
+    CS_DIR=$(/sbin/getcfg container-station Install_Path -f /etc/config/qpkg.conf 2>/dev/null)
+    if [ -z "$CS_DIR" ]; then
+        err_log "Container Station is required but not installed. Please install Container Station from App Center first."
+    fi
+}
+
+pkg_pre_install(){
+    true
+}
+
+pkg_install(){
+    true
+}
+
+pkg_post_install(){
+    # Keep an existing configuration across re-installs/upgrades.
+    if [ ! -f "${SYS_QPKG_DIR}/openwebui-ollama.conf" ]; then
+        cp "${SYS_QPKG_DIR}/openwebui-ollama.conf.default" "${SYS_QPKG_DIR}/openwebui-ollama.conf"
+    fi
+    chmod +x "${SYS_QPKG_DIR}/openwebui-ollama.sh"
+    mkdir -p "${SYS_QPKG_DIR}/logs"
+
+    # Warn (don't abort) if the WebUI port is already taken.
+    if netstat -lnt 2>/dev/null | grep -q ":3000 "; then
+        /sbin/write_log "[OpenWebUIOllama] Port 3000 is already in use. Set WEBUI_PORT in ${SYS_QPKG_DIR}/openwebui-ollama.conf to a free port before starting the app." 2
+    fi
+
+    # Kick off both image downloads in the background via the system
+    # container engine — installation returns immediately, the app
+    # starts by itself once the images are ready. "bgpull" detaches with
+    # setsid so the download survives App Center reaping this script's
+    # process group.
+    "${SYS_QPKG_DIR}/openwebui-ollama.sh" bgpull
+
+    /sbin/write_log "[OpenWebUIOllama] Installed. The official Ollama and Open WebUI images are being downloaded by Container Station in the background — open the app from App Center to watch progress. GPU acceleration is auto-detected; see the app's status page for details." 4
+}
