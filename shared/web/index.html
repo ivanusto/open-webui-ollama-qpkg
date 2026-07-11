@@ -169,8 +169,8 @@
       put("f-wdata", s.webui_data);
       put("f-tz", s.tz);
       put("f-updated", s.updated_at);
-      var gpuText = s.gpu === "nvidia" ? "已偵測到 NVIDIA GPU，Ollama 使用 --gpus all 加速" :
-                    (s.gpu_mode === "off" ? "已停用（GPU_MODE=off，CPU 模式）" : "未偵測到可用 GPU，Ollama 以 CPU 模式運作");
+      var gpuText = s.gpu === "nvidia" ? "NVIDIA GPU 已掛載，Ollama 使用 --gpus all 加速" :
+                    (s.gpu_mode === "off" ? "已停用（GPU_MODE=off，CPU 模式）" : "未使用 GPU（未偵測到可用 GPU，或 GPU 啟動失敗已自動退回 CPU 模式，詳見系統記錄）");
       put("f-gpu", s.gpu === "nvidia" ? "✅ NVIDIA GPU" : "CPU 模式");
       document.getElementById("gpu-detail").textContent = gpuText;
       loadPullProgress(s.state === "downloading-image" || s.state === "pull-failed");

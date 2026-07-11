@@ -37,6 +37,10 @@ STATUS_JSON="$WEB_DIR/status.json"
 
 mkdir -p "$LOG_DIR" 2>/dev/null
 
+# The detached _bg_pull job can inherit a deleted cwd (App Center's
+# temp extract dir), which makes every subshell print getcwd errors.
+cd / 2>/dev/null
+
 # ---------------------------------------------------------------- utils
 
 log() {
@@ -148,6 +152,18 @@ gpu_args() {
     esac
 }
 
+# Whether the *running* Ollama container actually has the GPU attached —
+# detection alone can be true while the container fell back to CPU
+# (e.g. nvidia runtime registered but the driver library is missing).
+ollama_gpu_active() {
+    REQ=$("$DOCKER" inspect -f '{{.HostConfig.DeviceRequests}}' "$OLLAMA_CONTAINER_NAME" 2>/dev/null)
+    [ -n "$REQ" ] && [ "$REQ" != "[]" ] && [ "$REQ" != "<no value>" ]
+}
+
+gpu_state_label() {
+    if ollama_gpu_active; then echo "nvidia"; else echo "none"; fi
+}
+
 # ------------------------------------------------------------- status
 
 json_escape() {
@@ -156,8 +172,15 @@ json_escape() {
 
 write_status() {
     # $1 = state string
-    GPU_STATE="none"
-    if [ "$GPU_MODE" != "off" ] && detect_gpu; then GPU_STATE="nvidia"; fi
+    # Prefer the real container state; fall back to detection before the
+    # container exists (e.g. while images are still downloading).
+    if container_exists "$OLLAMA_CONTAINER_NAME"; then
+        GPU_STATE=$(gpu_state_label)
+    elif [ "$GPU_MODE" != "off" ] && detect_gpu; then
+        GPU_STATE="nvidia"
+    else
+        GPU_STATE="none"
+    fi
     mkdir -p "$WEB_DIR" 2>/dev/null
     cat > "$STATUS_JSON" <<EOF
 {
@@ -311,7 +334,7 @@ finish_after_pull() {
     stop_landing
     if run_ollama && run_webui; then
         write_status "running"
-        log "Images downloaded; Ollama and Open WebUI containers created and started (port $WEBUI_PORT, GPU: $(detect_gpu && echo yes || echo no))." 4
+        log "Images downloaded; Ollama and Open WebUI containers created and started (port $WEBUI_PORT, GPU: $(ollama_gpu_active && echo yes || echo no))." 4
     else
         write_status "error"
         log "Images downloaded but a container failed to start. See $LOG_FILE." 1
@@ -336,7 +359,7 @@ do_start() {
         run_ollama || { write_status "error"; return 1; }
         run_webui  || { write_status "error"; return 1; }
         write_status "running"
-        log "Containers created and started (port $WEBUI_PORT, GPU: $(detect_gpu && echo yes || echo no))." 4
+        log "Containers created and started (port $WEBUI_PORT, GPU: $(ollama_gpu_active && echo yes || echo no))." 4
     else
         pull_and_run_bg
     fi
@@ -426,6 +449,9 @@ case "$1" in
         "$DOCKER" version 2>&1 | head -n 6
         echo "--- GPU ---"
         detect_gpu && echo "NVIDIA runtime detected (GPU_MODE=$GPU_MODE)" || echo "No NVIDIA runtime detected (GPU_MODE=$GPU_MODE, CPU inference)"
+        if container_exists "$OLLAMA_CONTAINER_NAME"; then
+            ollama_gpu_active && echo "Ollama container: GPU attached (--gpus all)" || echo "Ollama container: CPU-only (GPU start failed or disabled)"
+        fi
         echo "--- registry DNS ---"
         nslookup registry.ollama.ai 2>&1 | head -n 6
         nslookup ghcr.io 2>&1 | head -n 6
