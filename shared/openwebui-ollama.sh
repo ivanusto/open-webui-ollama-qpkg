@@ -200,6 +200,22 @@ write_status() {
 EOF
 }
 
+# ------------------------------------------------------------- docker readiness
+
+wait_for_docker() {
+    # Wait up to 120 seconds (40 attempts * 3 seconds) for the Docker daemon to become responsive.
+    attempts=40
+    count=0
+    while [ $count -lt $attempts ]; do
+        if "$DOCKER" info >/dev/null 2>&1; then
+            return 0
+        fi
+        count=$((count + 1))
+        sleep 3
+    done
+    return 1
+}
+
 # ------------------------------------------------------------- network
 
 ensure_network() {
@@ -342,6 +358,13 @@ finish_after_pull() {
 }
 
 do_start() {
+    # Wait for the docker daemon to become responsive before doing anything.
+    if ! wait_for_docker; then
+        log "Docker daemon did not become responsive within 120 seconds. Please ensure Container Station is running." 1
+        write_status "error"
+        return 1
+    fi
+
     ensure_network
     write_status "starting"
 
@@ -469,6 +492,11 @@ case "$1" in
         ;;
     _bg_pull)
         # internal, runs detached: pull with live progress for the landing page
+        if ! wait_for_docker; then
+            log "Docker daemon did not become responsive within 120 seconds. Pull aborted." 1
+            write_status "error"
+            exit 1
+        fi
         PIDFILE="$LOG_DIR/pull.pid"
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
             exit 0  # a pull is already running
