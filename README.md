@@ -26,9 +26,6 @@ openwebui-ollama.sh start
                                                  -e OLLAMA_BASE_URL=http://owui-ollama:11434
 ```
 
-> 套件內部名稱為 `OpenWebUIOllama`，刻意不叫 `OpenWebUI` 或 `Ollama`，
-> 避免未來與 QNAP Store 可能出現的同名官方套件衝突（roon-qpkg 專案就吃過這個虧）。
-
 ## 系統需求
 
 | 項目 | 需求 |
