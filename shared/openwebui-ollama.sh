@@ -123,6 +123,7 @@ load_conf() {
     NETWORK_NAME="${NETWORK_NAME:-owui-net}"
     TZ="${TZ:-$(detect_tz)}"
     STOP_TIMEOUT="${STOP_TIMEOUT:-60}"
+    CS_WAIT_TIMEOUT="${CS_WAIT_TIMEOUT:-900}"
 
     LANDING_NAME="${WEBUI_CONTAINER_NAME}-landing"
 
@@ -200,22 +201,6 @@ write_status() {
 EOF
 }
 
-# ------------------------------------------------------------- docker readiness
-
-wait_for_docker() {
-    # Wait up to 120 seconds (40 attempts * 3 seconds) for the Docker daemon to become responsive.
-    attempts=40
-    count=0
-    while [ $count -lt $attempts ]; do
-        if "$DOCKER" info >/dev/null 2>&1; then
-            return 0
-        fi
-        count=$((count + 1))
-        sleep 3
-    done
-    return 1
-}
-
 # ------------------------------------------------------------- network
 
 ensure_network() {
@@ -253,6 +238,15 @@ run_ollama_once() {
 }
 
 run_ollama() {
+    # Idempotent: never "docker run" over an existing container — that
+    # yields a name Conflict (and the GPU retry would then needlessly
+    # recreate a GPU container as CPU-only).
+    if container_exists "$OLLAMA_CONTAINER_NAME"; then
+        container_running "$OLLAMA_CONTAINER_NAME" && return 0
+        "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+        log "Existing Ollama container failed to start; recreating it (models are kept)." 2
+        "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
+    fi
     mkdir -p "$OLLAMA_DATA_PATH"
     GARGS=$(gpu_args)
     OUT=$(run_ollama_once "$GARGS" 2>&1 >/dev/null)
@@ -267,9 +261,8 @@ run_ollama() {
     return $RC
 }
 
-run_webui() {
-    mkdir -p "$WEBUI_DATA_PATH"
-    OUT=$("$DOCKER" run -d \
+run_webui_once() {
+    "$DOCKER" run -d \
         --name "$WEBUI_CONTAINER_NAME" \
         --network "$NETWORK_NAME" \
         --restart unless-stopped \
@@ -280,8 +273,39 @@ run_webui() {
         -e TZ="$TZ" \
         -v "$WEBUI_DATA_PATH":/app/backend/data \
         $WEBUI_EXTRA_ARGS \
-        "$WEBUI_IMAGE" 2>&1 >/dev/null)
+        "$WEBUI_IMAGE"
+}
+
+# Port WEBUI_PORT can stay bound for a few seconds after the landing
+# container is removed (docker-proxy teardown lag) — treat bind errors
+# as transient and retry instead of misreading them as a broken container.
+port_conflict() {
+    echo "$1" | grep -qi "address already in use\|port is already allocated"
+}
+
+run_webui() {
+    # Idempotent, same reason as run_ollama.
+    if container_exists "$WEBUI_CONTAINER_NAME"; then
+        container_running "$WEBUI_CONTAINER_NAME" && return 0
+        OUT=$("$DOCKER" start "$WEBUI_CONTAINER_NAME" 2>&1 >/dev/null) && return 0
+        if port_conflict "$OUT"; then
+            stop_landing
+            sleep 5
+            "$DOCKER" start "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+        fi
+        log "Existing Open WebUI container failed to start ($OUT); recreating it (data is kept)." 2
+        "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
+    fi
+    mkdir -p "$WEBUI_DATA_PATH"
+    stop_landing
+    OUT=$(run_webui_once 2>&1 >/dev/null)
     RC=$?
+    if [ $RC -ne 0 ] && port_conflict "$OUT"; then
+        "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
+        sleep 5
+        OUT=$(run_webui_once 2>&1 >/dev/null)
+        RC=$?
+    fi
     [ $RC -eq 0 ] || log "Failed to start the Open WebUI container: $OUT" 1
     return $RC
 }
@@ -299,16 +323,27 @@ start_landing() {
             return 1
         }
     fi
+    # Host networking on purpose: a dockerd-managed -p binding can leak
+    # (dockerd keeps the port bound after the container is force-removed
+    # during daemon churn, blocking the real WebUI container until the
+    # daemon restarts). With --net host the socket dies with httpd.
     "$DOCKER" run -d \
         --name "$LANDING_NAME" \
-        --restart unless-stopped \
-        -p "$WEBUI_PORT":80 \
+        --net host \
         -v "$WEB_DIR":/www:ro \
-        busybox:stable httpd -f -p 80 -h /www >/dev/null 2>&1
+        busybox:stable httpd -f -p "$WEBUI_PORT" -h /www >/dev/null 2>&1
 }
 
 stop_landing() {
     "$DOCKER" rm -f "$LANDING_NAME" >/dev/null 2>&1
+    # A daemon hiccup can orphan the host-net httpd while removing its
+    # container record, leaving WEBUI_PORT bound by a process docker no
+    # longer knows about. Kill strays by their exact cmdline signature.
+    # SIGKILL is required: the httpd is PID 1 of its own namespace and
+    # ignores SIGTERM by default.
+    for PID in $(ps 2>/dev/null | grep "httpd -f -p $WEBUI_PORT" | grep -v grep | awk '{print $1}'); do
+        kill -9 "$PID" 2>/dev/null
+    done
 }
 
 # ---------------------------------------------------------------- flow
@@ -320,16 +355,66 @@ pull_images() {
     "$DOCKER" pull "$WEBUI_IMAGE" >> "$PULL_LOG" 2>&1 || return 1
 }
 
-# Spawn a fully detached background pull. setsid puts the job in its
-# own session so it survives App Center killing the install/start
-# script's process group (plain nohup children can be reaped with it,
-# leaving the pull never actually running).
-spawn_bgpull() {
+# Spawn a fully detached background job ($1 = internal command). setsid
+# puts the job in its own session so it survives App Center killing the
+# install/start script's process group (plain nohup children can be
+# reaped with it, leaving the job never actually running).
+spawn_detached() {
     SELF="$QPKG_ROOT/openwebui-ollama.sh"
     if command -v setsid >/dev/null 2>&1; then
-        setsid "$SELF" _bg_pull </dev/null >/dev/null 2>&1 &
+        setsid "$SELF" "$1" </dev/null >/dev/null 2>&1 &
     else
-        nohup "$SELF" _bg_pull </dev/null >/dev/null 2>&1 &
+        nohup "$SELF" "$1" </dev/null >/dev/null 2>&1 &
+    fi
+}
+
+spawn_bgpull() {
+    spawn_detached _bg_pull
+}
+
+# True once Container Station's docker daemon answers queries against
+# its object store. "docker info" alone is NOT enough: right after CS
+# starts it can answer info while inspect/images still come up empty,
+# which made us misjudge existing containers as missing.
+docker_ready() {
+    [ -n "$DOCKER" ] || DOCKER=$(find_docker)
+    [ -n "$DOCKER" ] || return 1
+    "$DOCKER" info >/dev/null 2>&1 && "$DOCKER" ps -q >/dev/null 2>&1
+}
+
+# Wait up to $1 seconds (default CS_WAIT_TIMEOUT) for the docker daemon.
+# Needed at boot: this init script can run before Container Station has
+# finished starting, and docker CLI calls fail until then. Requires two
+# consecutive successful polls 10s apart so a daemon that is up but
+# still settling doesn't slip through.
+wait_docker_ready() {
+    LIMIT="${1:-$CS_WAIT_TIMEOUT}"
+    WAITED=0
+    OK=0
+    while :; do
+        if docker_ready; then
+            OK=$((OK + 1))
+            [ "$OK" -ge 2 ] && return 0
+            # mid-confirmation: never abort on the timeout boundary here
+        else
+            OK=0
+            [ "$WAITED" -ge "$LIMIT" ] && return 1
+        fi
+        sleep 10
+        WAITED=$((WAITED + 10))
+    done
+}
+
+# Start now if the container engine is up; otherwise finish the start
+# in a detached background job once it is (never block the QTS boot
+# sequence, and never mistake "daemon not up yet" for "images missing").
+start_or_defer() {
+    if docker_ready; then
+        do_start
+    else
+        write_status "waiting-for-container-station"
+        log "Container Station is not ready yet; Open WebUI + Ollama will start automatically as soon as it is." 4
+        spawn_detached _bg_start
     fi
 }
 
@@ -349,6 +434,7 @@ finish_after_pull() {
     ensure_network
     stop_landing
     if run_ollama && run_webui; then
+        touch "$QPKG_ROOT/.images-ready"
         write_status "running"
         log "Images downloaded; Ollama and Open WebUI containers created and started (port $WEBUI_PORT, GPU: $(ollama_gpu_active && echo yes || echo no))." 4
     else
@@ -357,32 +443,22 @@ finish_after_pull() {
     fi
 }
 
+# Only ever called with the docker daemon confirmed up (start_or_defer /
+# _bg_start / finish_after_pull gate on docker_ready first).
 do_start() {
-    # Wait for the docker daemon to become responsive before doing anything.
-    if ! wait_for_docker; then
-        log "Docker daemon did not become responsive within 120 seconds. Please ensure Container Station is running." 1
-        write_status "error"
-        return 1
-    fi
-
     ensure_network
     write_status "starting"
 
-    if container_exists "$OLLAMA_CONTAINER_NAME" && container_exists "$WEBUI_CONTAINER_NAME"; then
-        stop_landing
-        container_running "$OLLAMA_CONTAINER_NAME" || "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
-        container_running "$WEBUI_CONTAINER_NAME" || "$DOCKER" start "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
-        write_status "running"
-        log "Open WebUI + Ollama started (port $WEBUI_PORT)." 4
-        return 0
-    fi
-
-    if image_present "$OLLAMA_IMAGE" && image_present "$WEBUI_IMAGE"; then
+    # run_ollama/run_webui are idempotent: existing containers are
+    # started (or recreated if broken), otherwise created from the image.
+    if { container_exists "$OLLAMA_CONTAINER_NAME" && container_exists "$WEBUI_CONTAINER_NAME"; } \
+        || { image_present "$OLLAMA_IMAGE" && image_present "$WEBUI_IMAGE"; }; then
         stop_landing
         run_ollama || { write_status "error"; return 1; }
         run_webui  || { write_status "error"; return 1; }
+        touch "$QPKG_ROOT/.images-ready"
         write_status "running"
-        log "Containers created and started (port $WEBUI_PORT, GPU: $(ollama_gpu_active && echo yes || echo no))." 4
+        log "Open WebUI + Ollama started (port $WEBUI_PORT, GPU: $(ollama_gpu_active && echo yes || echo no))." 4
     else
         pull_and_run_bg
     fi
@@ -400,6 +476,7 @@ do_remove() {
     "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
     "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
     stop_landing
+    rm -f "$QPKG_ROOT/.images-ready"
     "$DOCKER" network rm "$NETWORK_NAME" >/dev/null 2>&1
     log "Containers and network removed. Ollama models ($OLLAMA_DATA_PATH) and Open WebUI data ($WEBUI_DATA_PATH) were kept." 4
 }
@@ -430,9 +507,15 @@ do_status() {
 
 DOCKER=$(find_docker)
 if [ -z "$DOCKER" ]; then
-    log "Container Station docker CLI not found. Please install/enable Container Station and restart this app." 1
-    write_status "no-container-engine"
-    [ "$1" = "start" ] && exit 1
+    # Not fatal for start/restart: at boot the CLI may not be reachable
+    # yet — start_or_defer waits for Container Station in the background.
+    case "$1" in
+        start|restart|_bg_start) ;;
+        *)
+            log "Container Station docker CLI not found. Please install/enable Container Station and restart this app." 1
+            write_status "no-container-engine"
+            ;;
+    esac
 fi
 
 load_conf
@@ -441,14 +524,14 @@ case "$1" in
     start)
         ENABLED=$(/sbin/getcfg "$QPKG_NAME" Enable -u -d FALSE -f "$CONF")
         [ "$ENABLED" = "TRUE" ] || { echo "$QPKG_NAME is disabled."; exit 1; }
-        do_start
+        start_or_defer
         ;;
     stop)
         do_stop
         ;;
     restart)
         do_stop
-        do_start
+        start_or_defer
         ;;
     status)
         do_status
@@ -490,11 +573,37 @@ case "$1" in
         echo "--- last pull log ($PULL_LOG) ---"
         tail -n 20 "$PULL_LOG" 2>/dev/null || echo "(no pull log yet)"
         ;;
+    _bg_start)
+        # internal, runs detached from start/restart when the container
+        # engine is not up yet (typically during boot): wait for it,
+        # then do the real start.
+        if wait_docker_ready; then
+            # The daemon answers ps/info while its object store is still
+            # loading, making existing containers/images look missing
+            # (observed to last 2+ minutes after boot). The .images-ready
+            # marker proves this app ran successfully before, so in that
+            # case absence can only mean "store not loaded yet" — keep
+            # waiting instead of falling into the download path.
+            SETTLE=0
+            LIMIT=60
+            [ -f "$QPKG_ROOT/.images-ready" ] && LIMIT="$CS_WAIT_TIMEOUT"
+            while [ "$SETTLE" -lt "$LIMIT" ]; do
+                container_exists "$OLLAMA_CONTAINER_NAME" && break
+                image_present "$OLLAMA_IMAGE" && break
+                sleep 10
+                SETTLE=$((SETTLE + 10))
+            done
+            do_start
+        else
+            write_status "no-container-engine"
+            log "Container Station did not become ready within ${CS_WAIT_TIMEOUT}s. Start this app from App Center once Container Station is running." 1
+        fi
+        ;;
     _bg_pull)
         # internal, runs detached: pull with live progress for the landing page
-        if ! wait_for_docker; then
-            log "Docker daemon did not become responsive within 120 seconds. Pull aborted." 1
-            write_status "error"
+        if ! wait_docker_ready; then
+            write_status "no-container-engine"
+            log "Container Station did not become ready within ${CS_WAIT_TIMEOUT}s; image download not started. Start this app from App Center once Container Station is running." 1
             exit 1
         fi
         PIDFILE="$LOG_DIR/pull.pid"
@@ -503,7 +612,16 @@ case "$1" in
         fi
         echo $$ > "$PIDFILE"
         write_status "downloading-image"
-        ( pull_images; echo $? > "$LOG_DIR/pull.rc" ) &
+        # Registry access / DNS can still be settling right after boot —
+        # retry transient pull failures before declaring defeat.
+        ( ATTEMPT=1
+          while :; do
+              pull_images && { echo 0 > "$LOG_DIR/pull.rc"; break; }
+              [ "$ATTEMPT" -ge 3 ] && { echo 1 > "$LOG_DIR/pull.rc"; break; }
+              ATTEMPT=$((ATTEMPT + 1))
+              echo "$(date '+%Y-%m-%d %H:%M:%S') pull failed; retry $ATTEMPT/3 in 30s" >> "$PULL_LOG"
+              sleep 30
+          done ) &
         PULL_JOB=$!
         while kill -0 "$PULL_JOB" 2>/dev/null; do
             tail -n 15 "$PULL_LOG" > "$WEB_DIR/pull-progress.txt" 2>/dev/null

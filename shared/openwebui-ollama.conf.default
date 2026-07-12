@@ -68,3 +68,8 @@
 
 # Seconds to wait for a clean container shutdown.
 #STOP_TIMEOUT="60"
+
+# Seconds to wait for Container Station's docker daemon at boot before
+# giving up (the app start is deferred in the background meanwhile, so
+# this never delays the QTS boot sequence).
+#CS_WAIT_TIMEOUT="900"
