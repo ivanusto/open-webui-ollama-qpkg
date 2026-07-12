@@ -243,15 +243,27 @@ run_ollama() {
     # recreate a GPU container as CPU-only).
     if container_exists "$OLLAMA_CONTAINER_NAME"; then
         container_running "$OLLAMA_CONTAINER_NAME" && return 0
-        "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && return 0
-        log "Existing Ollama container failed to start; recreating it (models are kept)." 2
-        "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
+        # GPU self-heal: a container recreated during an early boot (before
+        # the NVIDIA runtime registered with docker) is stuck CPU-only.
+        # While it is stopped anyway, recreate it with the GPU attached.
+        if [ "$GPU_MODE" != "off" ] && detect_gpu && ! ollama_gpu_active; then
+            log "GPU is available but not attached to the existing Ollama container; recreating it with GPU pass-through (models are kept)." 4
+            "$DOCKER" rm "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
+        else
+            "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+            log "Existing Ollama container failed to start; recreating it (models are kept)." 2
+            "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
+        fi
     fi
     mkdir -p "$OLLAMA_DATA_PATH"
     GARGS=$(gpu_args)
     OUT=$(run_ollama_once "$GARGS" 2>&1 >/dev/null)
     RC=$?
-    if [ $RC -ne 0 ] && [ -n "$GARGS" ]; then
+    if [ $RC -ne 0 ] && name_conflict "$OUT"; then
+        # the container was there all along, just invisible to inspect
+        "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+    fi
+    if [ $RC -ne 0 ] && [ -n "$GARGS" ] && ! name_conflict "$OUT"; then
         log "Starting Ollama with GPU pass-through failed ($OUT); retrying CPU-only." 2
         "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
         OUT=$(run_ollama_once "" 2>&1 >/dev/null)
@@ -283,6 +295,13 @@ port_conflict() {
     echo "$1" | grep -qi "address already in use\|port is already allocated"
 }
 
+# "docker run" hit an existing container with our name: right after boot
+# the object store can hide a container from inspect for a while, so the
+# exists-guard misses it and run collides. The container is fine — start it.
+name_conflict() {
+    echo "$1" | grep -qi "is already in use by container"
+}
+
 run_webui() {
     # Idempotent, same reason as run_ollama.
     if container_exists "$WEBUI_CONTAINER_NAME"; then
@@ -300,6 +319,10 @@ run_webui() {
     stop_landing
     OUT=$(run_webui_once 2>&1 >/dev/null)
     RC=$?
+    if [ $RC -ne 0 ] && name_conflict "$OUT"; then
+        # the container was there all along, just invisible to inspect
+        "$DOCKER" start "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+    fi
     if [ $RC -ne 0 ] && port_conflict "$OUT"; then
         "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
         sleep 5
