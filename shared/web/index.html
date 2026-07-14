@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,7 +14,7 @@
   .wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
   header{display:flex;align-items:center;gap:16px;margin-bottom:28px}
   .logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#3ecf8e,#2f8fff);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#0f1117}
-  h1{font-size:22px;margin:0}
+  h1{font-size:22px;margin:0;flex-grow:1}
   h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:18px}
   .card h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
@@ -34,113 +34,235 @@
   li{margin:4px 0;font-size:14px}
   a{color:#8fd6ff}
   .muted{color:var(--muted);font-size:13px}
+
+  .lang-switch{display:flex;gap:4px;font-size:12px;background:var(--card2);border:1px solid var(--border);padding:3px;border-radius:18px;margin-left:auto;align-self:center}
+  .lang-btn{color:var(--muted);cursor:pointer;padding:3px 10px;border-radius:14px;transition:all .15s ease}
+  .lang-btn:hover{color:var(--text)}
+  .lang-btn.active{background:var(--accent);color:#0f1117;font-weight:600}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <div class="logo">AI</div>
-    <h1>Open WebUI + Ollama <small>官方 Docker 映像 · Container Station · QPKG 管理外殼</small></h1>
+    <h1>Open WebUI + Ollama <small id="sub-title">Official Docker Images · Container Station · QPKG Management Wrapper</small></h1>
+    <div class="lang-switch">
+      <span class="lang-btn" id="btn-en" onclick="setLang('en')">English</span>
+      <span class="lang-btn" id="btn-zh" onclick="setLang('zh')">繁體中文</span>
+    </div>
   </header>
 
   <div class="card">
-    <h2>目前狀態 <span id="state" class="pill warn">讀取中…</span></h2>
+    <h2><span id="txt-status">Current Status</span> <span id="state" class="pill warn">Loading...</span></h2>
     <table id="info">
-      <tr><td>Ollama 容器</td><td id="f-ollama-c">–</td></tr>
-      <tr><td>Ollama 映像檔</td><td id="f-ollama-i">–</td></tr>
-      <tr><td>Open WebUI 容器</td><td id="f-webui-c">–</td></tr>
-      <tr><td>Open WebUI 映像檔</td><td id="f-webui-i">–</td></tr>
-      <tr><td>網頁埠</td><td id="f-port">–</td></tr>
-      <tr><td>GPU 加速</td><td id="f-gpu">–</td></tr>
-      <tr><td>模型儲存路徑</td><td id="f-odata">–</td></tr>
-      <tr><td>WebUI 資料路徑</td><td id="f-wdata">–</td></tr>
-      <tr><td>時區</td><td id="f-tz">–</td></tr>
-      <tr><td>狀態更新時間</td><td id="f-updated">–</td></tr>
+      <tr><td id="lbl-ollama-c">Ollama Container</td><td id="f-ollama-c">–</td></tr>
+      <tr><td id="lbl-ollama-i">Ollama Image</td><td id="f-ollama-i">–</td></tr>
+      <tr><td id="lbl-webui-c">Open WebUI Container</td><td id="f-webui-c">–</td></tr>
+      <tr><td id="lbl-webui-i">Open WebUI Image</td><td id="f-webui-i">–</td></tr>
+      <tr><td id="lbl-port">Web Port</td><td id="f-port">–</td></tr>
+      <tr><td id="lbl-gpu">GPU Acceleration</td><td id="f-gpu">–</td></tr>
+      <tr><td id="lbl-odata">Model Storage Path</td><td id="f-odata">–</td></tr>
+      <tr><td id="lbl-wdata">WebUI Data Path</td><td id="f-wdata">–</td></tr>
+      <tr><td id="lbl-tz">Time Zone</td><td id="f-tz">–</td></tr>
+      <tr><td id="lbl-updated">Status Updated At</td><td id="f-updated">–</td></tr>
     </table>
     <div id="pull-box" style="display:none">
-      <p class="muted" style="margin-bottom:4px">映像檔下載進度（每 5 秒自動更新）：</p>
+      <p class="muted" style="margin-bottom:4px" id="lbl-pull-progress">Image download progress (auto-updates every 5s):</p>
       <pre id="pull-pre" style="max-height:220px;overflow:auto"></pre>
     </div>
-    <p class="muted">此頁每 5 秒自動更新。當 Open WebUI 準備就緒後，這個畫面會自動被真正的 Open WebUI 介面取代（同一個網址）。</p>
+    <p class="muted" id="lbl-status-desc">This page auto-updates every 5 seconds. Once Open WebUI is ready, this screen is automatically replaced by the real Open WebUI interface (same URL).</p>
   </div>
 
   <div class="card">
-    <h2>ℹ️ 為什麼會看到這個畫面？</h2>
-    <p style="font-size:14px">
-      本套件安裝後不會內含任何 AI 模型或應用程式本體，而是在<b>背景</b>請 Container Station
-      下載官方的 <code>ollama/ollama</code> 與 <code>ghcr.io/open-webui/open-webui</code> 映像檔。
-      在下載完成前，這個輕量狀態頁會暫時佔用網頁埠，讓你可以確認下載進度；
-      下載完成後，套件會自動建立並啟動兩個容器，Open WebUI 的真正介面就會出現在同一個網址上，不需要手動重新整理設定。
+    <h2 id="h-why">ℹ️ Why Am I Seeing This Page?</h2>
+    <p style="font-size:14px" id="p-why-desc">
+      This package does not ship any AI models or application binaries. Instead, it asks Container Station in the <b>background</b>
+      to download the official <code>ollama/ollama</code> and <code>ghcr.io/open-webui/open-webui</code> images.
+      Until the download finishes, this lightweight status page temporarily occupies the web port so you can watch the progress;
+      once complete, the package automatically creates and starts both containers, and the real Open WebUI interface appears at this same URL — no manual reconfiguration needed.
     </p>
   </div>
 
   <div class="card">
-    <h2>⚡ GPU 加速</h2>
-    <p style="font-size:14px">
-      套件會自動偵測 Container Station 是否已啟用 NVIDIA GPU runtime（需先在 App Center 安裝官方 NVIDIA GPU Driver，
-      且機型支援獨立顯示卡）。偵測到才會將 <code>--gpus all</code> 傳給 Ollama 容器；沒有偵測到則自動以 CPU 模式運作，
-      並在系統紀錄留下提示，套件本身在兩種情況下都能正常啟動。
+    <h2 id="h-gpu">⚡ GPU Acceleration</h2>
+    <p style="font-size:14px" id="p-gpu-desc">
+      The package automatically detects whether Container Station has the NVIDIA GPU runtime enabled (requires the official
+      NVIDIA GPU Driver from App Center and a model that supports discrete GPUs). Only when detected does it pass
+      <code>--gpus all</code> to the Ollama container; otherwise it automatically runs in CPU mode and leaves a note in the
+      system log. The package starts up fine either way.
     </p>
     <div class="callout">
-      目前 GPU 狀態：<b id="gpu-detail">讀取中…</b>
+      <span id="lbl-gpu-detail">Current GPU status:</span> <b id="gpu-detail">Loading...</b>
     </div>
   </div>
 
   <div class="card">
-    <h2>💾 資料存放位置</h2>
-    <p style="font-size:14px">
-      Ollama 下載的模型檔案通常單一檔案就有數 GB 到數十 GB，請確保
-      <code id="c-odata2">模型儲存路徑</code> 所在磁碟區有足夠空間。Open WebUI 的聊天記錄、上傳文件與 RAG
-      向量資料庫則存放在 <code id="c-wdata2">WebUI 資料路徑</code>。兩者預設都在套件安裝目錄下的
-      <code>data/</code> 資料夾，重灌套件不會遺失資料。
+    <h2 id="h-data">💾 Data Storage Locations</h2>
+    <p style="font-size:14px" id="p-data-desc">
+      Model files downloaded by Ollama are typically several GB to tens of GB each, so make sure the volume holding the
+      <code>Model Storage Path</code> has enough free space. Open WebUI's chat history, uploaded documents, and RAG vector
+      database are stored at the <code>WebUI Data Path</code>. Both default to the <code>data/</code> folder inside the QPKG
+      installation directory, so reinstalling the package does not lose data.
     </p>
-    <div class="callout warn">
-      <b>變更路徑：</b>編輯 QPKG 安裝目錄下的 <code>openwebui-ollama.conf</code>，設定
-      <code>OLLAMA_DATA_PATH</code> / <code>WEBUI_DATA_PATH</code> 後重新啟動本套件即可套用。
+    <div class="callout warn" id="callout-data-cfg">
+      <b>To change paths:</b> Edit <code>openwebui-ollama.conf</code> in the QPKG installation directory, set
+      <code>OLLAMA_DATA_PATH</code> / <code>WEBUI_DATA_PATH</code>, then restart this package to apply.
     </div>
   </div>
 
   <div class="card">
-    <h2>🚀 首次使用</h2>
+    <h2 id="h-first-time">🚀 Getting Started</h2>
     <ol>
-      <li>安裝完成後，套件會於<b>背景</b>下載官方映像檔（視網速需數分鐘到數十分鐘，模型執行環境本體較大）。</li>
-      <li>下載完成後開啟本頁（同一網址）即可看到 Open WebUI 登入畫面；<b>第一個註冊的帳號會自動成為管理員</b>。</li>
-      <li>Open WebUI 已預先設定好連到內部的 Ollama 服務（<code>OLLAMA_BASE_URL</code> 已自動指向同一私有網路內的 Ollama 容器），
-        登入後直接在介面右上角「選擇模型」搜尋並下載模型即可開始對話。</li>
-      <li>若要開放註冊給團隊其他成員，或改成邀請制，可在 Open WebUI 的「管理員設定」內調整，不需要修改本套件設定。</li>
+      <li id="li-ft-1">After installation, the package downloads the official images in the <b>background</b> (a few minutes to tens of minutes depending on network speed — the model runtime image is large).</li>
+      <li id="li-ft-2">Once the download completes, open this page (same URL) to see the Open WebUI login screen; <b>the first account registered automatically becomes the administrator</b>.</li>
+      <li id="li-ft-3">Open WebUI is pre-configured to reach the internal Ollama service (<code>OLLAMA_BASE_URL</code> already points to the Ollama container on the same private network). After logging in, use "Select a model" at the top of the interface to search for and download a model, then start chatting.</li>
+      <li id="li-ft-4">To open registration to other team members, or switch to invite-only, adjust it in Open WebUI's "Admin Settings" — no changes to this package are needed.</li>
     </ol>
-    <p class="muted">下載進度：<code>&lt;QPKG 安裝目錄&gt;/logs/pull.log</code>；服務記錄：<code>logs/openwebui-ollama.log</code>。</p>
+    <p class="muted" id="p-log-paths">Download progress: <code>&lt;QPKG Root&gt;/logs/pull.log</code>; Service log: <code>logs/openwebui-ollama.log</code>.</p>
   </div>
 
   <div class="card">
-    <h2>🔧 常用維護指令（SSH）</h2>
-    <pre>/etc/init.d/openwebui-ollama.sh status    # 檢視狀態
-/etc/init.d/openwebui-ollama.sh restart   # 重新啟動
-/etc/init.d/openwebui-ollama.sh update    # 更新官方映像並重建容器（資料保留）
-/etc/init.d/openwebui-ollama.sh diag      # 診斷 GPU / 映像檔 / 網路連線</pre>
+    <h2 id="h-commands">🔧 Useful Maintenance Commands (SSH)</h2>
+    <pre id="pre-commands">/etc/init.d/openwebui-ollama.sh status    # Check status
+/etc/init.d/openwebui-ollama.sh restart   # Restart
+/etc/init.d/openwebui-ollama.sh update    # Update official images & rebuild containers (data is kept)
+/etc/init.d/openwebui-ollama.sh diag      # Diagnose GPU / images / network connectivity</pre>
   </div>
 
-  <p class="muted">
-    本套件僅包含管理指令碼與此狀態頁，不內含任何 Ollama 或 Open WebUI 程式本體；分別由
-    <a href="https://github.com/ollama/ollama" target="_blank" rel="noopener">Ollama 官方映像</a> 與
-    <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">Open WebUI 官方映像</a> 提供。
-    套件結構參考 <a href="https://github.com/qnap-dev/containerized-qpkg" target="_blank" rel="noopener">qnap-dev/containerized-qpkg</a>。
+  <p class="muted" id="p-footer">
+    This app contains only management scripts and this status page, not the Ollama or Open WebUI software itself; they are provided by the
+    <a href="https://github.com/ollama/ollama" target="_blank" rel="noopener">official Ollama image</a> and the
+    <a href="https://github.com/open-webui/open-webui" target="_blank" rel="noopener">official Open WebUI image</a> respectively.
+    Package structure is based on <a href="https://github.com/qnap-dev/containerized-qpkg" target="_blank" rel="noopener">qnap-dev/containerized-qpkg</a>.
   </p>
 </div>
 
 <script>
 (function(){
-  var stateMap = {
-    "running":            ["ok",   "執行中"],
-    "starting":           ["warn", "啟動中…"],
-    "stopped":            ["warn", "已停止"],
-    "downloading-image":  ["warn", "映像檔下載中…"],
-    "waiting-for-container-station": ["warn", "等待 Container Station 啟動…"],
-    "pull-failed":        ["err",  "映像檔下載失敗"],
-    "no-container-engine":["err",  "找不到 Container Station"],
-    "error":              ["err",  "發生錯誤"]
+  var i18n = {
+    en: {
+      subtitle: "Official Docker Images · Container Station · QPKG Management Wrapper",
+      statusTitle: "Current Status",
+      lblOllamaC: "Ollama Container",
+      lblOllamaI: "Ollama Image",
+      lblWebuiC: "Open WebUI Container",
+      lblWebuiI: "Open WebUI Image",
+      lblPort: "Web Port",
+      lblGpu: "GPU Acceleration",
+      lblOdata: "Model Storage Path",
+      lblWdata: "WebUI Data Path",
+      lblTz: "Time Zone",
+      lblUpdated: "Status Updated At",
+      lblPullProgress: "Image download progress (auto-updates every 5s):",
+      lblStatusDesc: "This page auto-updates every 5 seconds. Once Open WebUI is ready, this screen is automatically replaced by the real Open WebUI interface (same URL).",
+      hWhy: "ℹ️ Why Am I Seeing This Page?",
+      pWhyDesc: "This package does not ship any AI models or application binaries. Instead, it asks Container Station in the <b>background</b> to download the official <code>ollama/ollama</code> and <code>ghcr.io/open-webui/open-webui</code> images. Until the download finishes, this lightweight status page temporarily occupies the web port so you can watch the progress; once complete, the package automatically creates and starts both containers, and the real Open WebUI interface appears at this same URL — no manual reconfiguration needed.",
+      hGpu: "⚡ GPU Acceleration",
+      pGpuDesc: "The package automatically detects whether Container Station has the NVIDIA GPU runtime enabled (requires the official NVIDIA GPU Driver from App Center and a model that supports discrete GPUs). Only when detected does it pass <code>--gpus all</code> to the Ollama container; otherwise it automatically runs in CPU mode and leaves a note in the system log. The package starts up fine either way.",
+      lblGpuDetail: "Current GPU status:",
+      hData: "💾 Data Storage Locations",
+      pDataDesc: "Model files downloaded by Ollama are typically several GB to tens of GB each, so make sure the volume holding the <code>Model Storage Path</code> has enough free space. Open WebUI's chat history, uploaded documents, and RAG vector database are stored at the <code>WebUI Data Path</code>. Both default to the <code>data/</code> folder inside the QPKG installation directory, so reinstalling the package does not lose data.",
+      calloutDataCfg: "<b>To change paths:</b> Edit <code>openwebui-ollama.conf</code> in the QPKG installation directory, set <code>OLLAMA_DATA_PATH</code> / <code>WEBUI_DATA_PATH</code>, then restart this package to apply.",
+      hFirstTime: "🚀 Getting Started",
+      liFt1: "After installation, the package downloads the official images in the <b>background</b> (a few minutes to tens of minutes depending on network speed — the model runtime image is large).",
+      liFt2: "Once the download completes, open this page (same URL) to see the Open WebUI login screen; <b>the first account registered automatically becomes the administrator</b>.",
+      liFt3: "Open WebUI is pre-configured to reach the internal Ollama service (<code>OLLAMA_BASE_URL</code> already points to the Ollama container on the same private network). After logging in, use \"Select a model\" at the top of the interface to search for and download a model, then start chatting.",
+      liFt4: "To open registration to other team members, or switch to invite-only, adjust it in Open WebUI's \"Admin Settings\" — no changes to this package are needed.",
+      pLogPaths: "Download progress: <code>&lt;QPKG Root&gt;/logs/pull.log</code>; Service log: <code>logs/openwebui-ollama.log</code>.",
+      hCommands: "🔧 Useful Maintenance Commands (SSH)",
+      preCommands: "/etc/init.d/openwebui-ollama.sh status    # Check status\n/etc/init.d/openwebui-ollama.sh restart   # Restart\n/etc/init.d/openwebui-ollama.sh update    # Update official images & rebuild containers (data is kept)\n/etc/init.d/openwebui-ollama.sh diag      # Diagnose GPU / images / network connectivity",
+      pFooter: "This app contains only management scripts and this status page, not the Ollama or Open WebUI software itself; they are provided by the <a href=\"https://github.com/ollama/ollama\" target=\"_blank\" rel=\"noopener\">official Ollama image</a> and the <a href=\"https://github.com/open-webui/open-webui\" target=\"_blank\" rel=\"noopener\">official Open WebUI image</a> respectively. Package structure is based on <a href=\"https://github.com/qnap-dev/containerized-qpkg\" target=\"_blank\" rel=\"noopener\">qnap-dev/containerized-qpkg</a>.",
+      emptyVal: "(Not set)",
+      stateLoading: "Loading...",
+      stateConnecting: "Connecting...",
+      gpuPillNvidia: "✅ NVIDIA GPU",
+      gpuPillCpu: "CPU mode",
+      gpuDetailNvidia: "NVIDIA GPU attached; Ollama runs with --gpus all acceleration",
+      gpuDetailOff: "Disabled (GPU_MODE=off, CPU mode)",
+      gpuDetailNone: "No GPU in use (no usable GPU detected, or GPU startup failed and fell back to CPU mode — see system log)"
+    },
+    zh: {
+      subtitle: "官方 Docker 映像 · Container Station · QPKG 管理外殼",
+      statusTitle: "目前狀態",
+      lblOllamaC: "Ollama 容器",
+      lblOllamaI: "Ollama 映像檔",
+      lblWebuiC: "Open WebUI 容器",
+      lblWebuiI: "Open WebUI 映像檔",
+      lblPort: "網頁埠",
+      lblGpu: "GPU 加速",
+      lblOdata: "模型儲存路徑",
+      lblWdata: "WebUI 資料路徑",
+      lblTz: "時區",
+      lblUpdated: "狀態更新時間",
+      lblPullProgress: "映像檔下載進度（每 5 秒自動更新）：",
+      lblStatusDesc: "此頁每 5 秒自動更新。當 Open WebUI 準備就緒後，這個畫面會自動被真正的 Open WebUI 介面取代（同一個網址）。",
+      hWhy: "ℹ️ 為什麼會看到這個畫面？",
+      pWhyDesc: "本套件安裝後不會內含任何 AI 模型或應用程式本體，而是在<b>背景</b>請 Container Station 下載官方的 <code>ollama/ollama</code> 與 <code>ghcr.io/open-webui/open-webui</code> 映像檔。在下載完成前，這個輕量狀態頁會暫時佔用網頁埠，讓你可以確認下載進度；下載完成後，套件會自動建立並啟動兩個容器，Open WebUI 的真正介面就會出現在同一個網址上，不需要手動重新整理設定。",
+      hGpu: "⚡ GPU 加速",
+      pGpuDesc: "套件會自動偵測 Container Station 是否已啟用 NVIDIA GPU runtime（需先在 App Center 安裝官方 NVIDIA GPU Driver，且機型支援獨立顯示卡）。偵測到才會將 <code>--gpus all</code> 傳給 Ollama 容器；沒有偵測到則自動以 CPU 模式運作，並在系統紀錄留下提示，套件本身在兩種情況下都能正常啟動。",
+      lblGpuDetail: "目前 GPU 狀態：",
+      hData: "💾 資料存放位置",
+      pDataDesc: "Ollama 下載的模型檔案通常單一檔案就有數 GB 到數十 GB，請確保<code>模型儲存路徑</code>所在磁碟區有足夠空間。Open WebUI 的聊天記錄、上傳文件與 RAG 向量資料庫則存放在<code>WebUI 資料路徑</code>。兩者預設都在套件安裝目錄下的 <code>data/</code> 資料夾，重灌套件不會遺失資料。",
+      calloutDataCfg: "<b>變更路徑：</b>編輯 QPKG 安裝目錄下的 <code>openwebui-ollama.conf</code>，設定 <code>OLLAMA_DATA_PATH</code> / <code>WEBUI_DATA_PATH</code> 後重新啟動本套件即可套用。",
+      hFirstTime: "🚀 首次使用",
+      liFt1: "安裝完成後，套件會於<b>背景</b>下載官方映像檔（視網速需數分鐘到數十分鐘，模型執行環境本體較大）。",
+      liFt2: "下載完成後開啟本頁（同一網址）即可看到 Open WebUI 登入畫面；<b>第一個註冊的帳號會自動成為管理員</b>。",
+      liFt3: "Open WebUI 已預先設定好連到內部的 Ollama 服務（<code>OLLAMA_BASE_URL</code> 已自動指向同一私有網路內的 Ollama 容器），登入後直接在介面右上角「選擇模型」搜尋並下載模型即可開始對話。",
+      liFt4: "若要開放註冊給團隊其他成員，或改成邀請制，可在 Open WebUI 的「管理員設定」內調整，不需要修改本套件設定。",
+      pLogPaths: "下載進度：<code>&lt;QPKG 安裝目錄&gt;/logs/pull.log</code>；服務記錄：<code>logs/openwebui-ollama.log</code>。",
+      hCommands: "🔧 常用維護指令（SSH）",
+      preCommands: "/etc/init.d/openwebui-ollama.sh status    # 檢視狀態\n/etc/init.d/openwebui-ollama.sh restart   # 重新啟動\n/etc/init.d/openwebui-ollama.sh update    # 更新官方映像並重建容器（資料保留）\n/etc/init.d/openwebui-ollama.sh diag      # 診斷 GPU / 映像檔 / 網路連線",
+      pFooter: "本套件僅包含管理指令碼與此狀態頁，不內含任何 Ollama 或 Open WebUI 程式本體；分別由 <a href=\"https://github.com/ollama/ollama\" target=\"_blank\" rel=\"noopener\">Ollama 官方映像</a> 與 <a href=\"https://github.com/open-webui/open-webui\" target=\"_blank\" rel=\"noopener\">Open WebUI 官方映像</a> 提供。套件結構參考 <a href=\"https://github.com/qnap-dev/containerized-qpkg\" target=\"_blank\" rel=\"noopener\">qnap-dev/containerized-qpkg</a>。",
+      emptyVal: "（未設定）",
+      stateLoading: "讀取中…",
+      stateConnecting: "連線中…",
+      gpuPillNvidia: "✅ NVIDIA GPU",
+      gpuPillCpu: "CPU 模式",
+      gpuDetailNvidia: "NVIDIA GPU 已掛載，Ollama 使用 --gpus all 加速",
+      gpuDetailOff: "已停用（GPU_MODE=off，CPU 模式）",
+      gpuDetailNone: "未使用 GPU（未偵測到可用 GPU，或 GPU 啟動失敗已自動退回 CPU 模式，詳見系統記錄）"
+    }
   };
-  function put(id, v){ document.getElementById(id).textContent = v || "（未設定）"; }
+
+  var stateMap = {
+    en: {
+      "running":            ["ok",   "Running"],
+      "starting":           ["warn", "Starting..."],
+      "stopped":            ["warn", "Stopped"],
+      "downloading-image":  ["warn", "Downloading image..."],
+      "waiting-for-container-station": ["warn", "Waiting for Container Station..."],
+      "pull-failed":        ["err",  "Download failed"],
+      "no-container-engine":["err",  "Container Station not found"],
+      "error":              ["err",  "Error"]
+    },
+    zh: {
+      "running":            ["ok",   "執行中"],
+      "starting":           ["warn", "啟動中…"],
+      "stopped":            ["warn", "已停止"],
+      "downloading-image":  ["warn", "映像檔下載中…"],
+      "waiting-for-container-station": ["warn", "等待 Container Station 啟動…"],
+      "pull-failed":        ["err",  "映像檔下載失敗"],
+      "no-container-engine":["err",  "找不到 Container Station"],
+      "error":              ["err",  "發生錯誤"]
+    }
+  };
+
+  function detectLang(){
+    // First visit: Chinese browser locales (zh-TW/zh-CN/zh-HK/...) get Chinese,
+    // every other locale gets English. Manual choice below overrides this.
+    var lang = (navigator.languages && navigator.languages[0]) || navigator.language || "";
+    return String(lang).toLowerCase().indexOf("zh") === 0 ? "zh" : "en";
+  }
+  var currentLang = localStorage.getItem("openwebui_qpkg_lang") || detectLang();
+
+  window.setLang = function(lang) {
+    currentLang = lang;
+    localStorage.setItem("openwebui_qpkg_lang", lang);
+    updateUI();
+  };
+
+  function put(id, v){ document.getElementById(id).textContent = v || i18n[currentLang].emptyVal; }
+
   function loadPullProgress(show){
     var box = document.getElementById("pull-box");
     if (!show) { box.style.display = "none"; return; }
@@ -153,38 +275,99 @@
       }
     }).catch(function(){});
   }
+
+  function applyStatus(s){
+    var t = i18n[currentLang];
+    var el = document.getElementById("state");
+    var m = stateMap[currentLang][s.state] || ["warn", s.state];
+    el.className = "pill " + m[0];
+    el.textContent = m[1];
+    put("f-ollama-c", s.ollama_container);
+    put("f-ollama-i", s.ollama_image);
+    put("f-webui-c", s.webui_container);
+    put("f-webui-i", s.webui_image);
+    put("f-port", s.webui_port);
+    put("f-odata", s.ollama_data);
+    put("f-wdata", s.webui_data);
+    put("f-tz", s.tz);
+    put("f-updated", s.updated_at);
+    var gpuText = s.gpu === "nvidia" ? t.gpuDetailNvidia :
+                  (s.gpu_mode === "off" ? t.gpuDetailOff : t.gpuDetailNone);
+    put("f-gpu", s.gpu === "nvidia" ? t.gpuPillNvidia : t.gpuPillCpu);
+    document.getElementById("gpu-detail").textContent = gpuText;
+    loadPullProgress(s.state === "downloading-image" || s.state === "pull-failed");
+  }
+
   var missCount = 0;
   function load(){
     fetch("status.json", {cache:"no-store"}).then(function(r){ return r.json(); }).then(function(s){
       missCount = 0;
-      var el = document.getElementById("state");
-      var m = stateMap[s.state] || ["warn", s.state];
-      el.className = "pill " + m[0];
-      el.textContent = m[1];
-      put("f-ollama-c", s.ollama_container);
-      put("f-ollama-i", s.ollama_image);
-      put("f-webui-c", s.webui_container);
-      put("f-webui-i", s.webui_image);
-      put("f-port", s.webui_port);
-      put("f-odata", s.ollama_data);
-      put("f-wdata", s.webui_data);
-      put("f-tz", s.tz);
-      put("f-updated", s.updated_at);
-      var gpuText = s.gpu === "nvidia" ? "NVIDIA GPU 已掛載，Ollama 使用 --gpus all 加速" :
-                    (s.gpu_mode === "off" ? "已停用（GPU_MODE=off，CPU 模式）" : "未使用 GPU（未偵測到可用 GPU，或 GPU 啟動失敗已自動退回 CPU 模式，詳見系統記錄）");
-      put("f-gpu", s.gpu === "nvidia" ? "✅ NVIDIA GPU" : "CPU 模式");
-      document.getElementById("gpu-detail").textContent = gpuText;
-      loadPullProgress(s.state === "downloading-image" || s.state === "pull-failed");
+      window.lastStatus = s;
+      applyStatus(s);
     }).catch(function(){
       // The real Open WebUI container may already have taken over this
       // port mid-transition; reload so the browser picks it up.
       missCount++;
+      window.lastStatus = null;
       var el = document.getElementById("state");
       el.className = "pill warn";
-      el.textContent = "連線中…";
+      el.textContent = i18n[currentLang].stateConnecting;
       if (missCount >= 2) { window.location.reload(); }
     });
   }
+
+  function updateUI() {
+    var t = i18n[currentLang];
+    document.documentElement.lang = currentLang === "zh" ? "zh-Hant" : "en";
+
+    document.getElementById("btn-en").classList.toggle("active", currentLang === "en");
+    document.getElementById("btn-zh").classList.toggle("active", currentLang === "zh");
+
+    document.getElementById("sub-title").textContent = t.subtitle;
+    document.getElementById("txt-status").textContent = t.statusTitle;
+    document.getElementById("lbl-ollama-c").textContent = t.lblOllamaC;
+    document.getElementById("lbl-ollama-i").textContent = t.lblOllamaI;
+    document.getElementById("lbl-webui-c").textContent = t.lblWebuiC;
+    document.getElementById("lbl-webui-i").textContent = t.lblWebuiI;
+    document.getElementById("lbl-port").textContent = t.lblPort;
+    document.getElementById("lbl-gpu").textContent = t.lblGpu;
+    document.getElementById("lbl-odata").textContent = t.lblOdata;
+    document.getElementById("lbl-wdata").textContent = t.lblWdata;
+    document.getElementById("lbl-tz").textContent = t.lblTz;
+    document.getElementById("lbl-updated").textContent = t.lblUpdated;
+    document.getElementById("lbl-pull-progress").textContent = t.lblPullProgress;
+    document.getElementById("lbl-status-desc").textContent = t.lblStatusDesc;
+
+    document.getElementById("h-why").textContent = t.hWhy;
+    document.getElementById("p-why-desc").innerHTML = t.pWhyDesc;
+
+    document.getElementById("h-gpu").textContent = t.hGpu;
+    document.getElementById("p-gpu-desc").innerHTML = t.pGpuDesc;
+    document.getElementById("lbl-gpu-detail").textContent = t.lblGpuDetail;
+
+    document.getElementById("h-data").textContent = t.hData;
+    document.getElementById("p-data-desc").innerHTML = t.pDataDesc;
+    document.getElementById("callout-data-cfg").innerHTML = t.calloutDataCfg;
+
+    document.getElementById("h-first-time").textContent = t.hFirstTime;
+    document.getElementById("li-ft-1").innerHTML = t.liFt1;
+    document.getElementById("li-ft-2").innerHTML = t.liFt2;
+    document.getElementById("li-ft-3").innerHTML = t.liFt3;
+    document.getElementById("li-ft-4").innerHTML = t.liFt4;
+    document.getElementById("p-log-paths").innerHTML = t.pLogPaths;
+
+    document.getElementById("h-commands").textContent = t.hCommands;
+    document.getElementById("pre-commands").textContent = t.preCommands;
+    document.getElementById("p-footer").innerHTML = t.pFooter;
+
+    if (window.lastStatus) {
+      applyStatus(window.lastStatus);
+    }
+  }
+
+  // Initial update
+  updateUI();
+
   load();
   setInterval(load, 5000);
 })();
