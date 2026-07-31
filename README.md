@@ -126,4 +126,4 @@ GitHub Actions builds QPKG artifacts on every push, and automatically releases t
 
 ## License and Disclaimer
 
-The management scripts are licensed under the MIT License. Ollama and Open WebUI are products of their respective upstream projects, and their software and images are subject to their respective licenses. This project is not affiliated with Ollama, Open WebUI, or QNAP.
+The management scripts are licensed under the Apache License 2.0. Ollama and Open WebUI are products of their respective upstream projects, and their software and images are subject to their respective licenses. This project is not affiliated with Ollama, Open WebUI, or QNAP.
