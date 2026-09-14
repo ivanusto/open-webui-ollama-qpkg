@@ -86,7 +86,13 @@ default_volume() {
 # step with WEBUI_PORT so a custom port doesn't leave the link on 3000.
 sync_web_port() {
     [ "$(/sbin/getcfg "$QPKG_NAME" Web_Port -f "$CONF" 2>/dev/null)" = "$WEBUI_PORT" ] && return 0
-    /sbin/setcfg "$QPKG_NAME" Web_Port "$WEBUI_PORT" -f "$CONF" 2>/dev/null
+    SYNC_OUT=$(/sbin/setcfg "$QPKG_NAME" Web_Port "$WEBUI_PORT" -f "$CONF" 2>&1)
+    SYNC_RC=$?
+    # Read it back: setcfg can report success without the value sticking.
+    SYNC_NOW=$(/sbin/getcfg "$QPKG_NAME" Web_Port -f "$CONF" 2>/dev/null)
+    [ "$SYNC_NOW" = "$WEBUI_PORT" ] && return 0
+    log "Could not point the App Center link at port $WEBUI_PORT (setcfg rc=$SYNC_RC${SYNC_OUT:+, $SYNC_OUT}; Web_Port is still ${SYNC_NOW:-unset}; uid $(id -u)). The app itself runs on port $WEBUI_PORT; open it at that port directly." 2
+    return 1
 }
 
 gen_secret() {
@@ -633,6 +639,18 @@ if [ -z "$DOCKER" ]; then
 fi
 
 load_conf
+
+# Members of the administrators group can drive docker without root, so a
+# plain-user run appears to work, yet /sbin/write_log and the qpkg.conf
+# update (App Center link) silently fail. Say so up front.
+case "$1" in
+    start|stop|restart|update|remove)
+        if [ "$(id -u)" != "0" ]; then
+            echo "Warning: run this as admin (e.g. sudo $0 $1). Without root the QTS event log and the App Center link port cannot be updated." >&2
+            log "$1 was run without root (uid $(id -u)); QTS event log entries and the App Center link port may not be updated." 2
+        fi
+        ;;
+esac
 
 case "$1" in
     start|restart|_bg_start) sync_web_port ;;

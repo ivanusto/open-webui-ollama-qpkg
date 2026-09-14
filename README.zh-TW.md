@@ -131,6 +131,9 @@ GPU_MODE="off"
 
 ## 維運指令
 
+請以 `admin` 身分執行（例如加上 `sudo`）。administrators 群組的一般帳號不需要 root 也能操作 Docker，
+指令看起來會成功，但 QTS 事件記錄與 App Center 圖示連結的埠不會更新。
+
 ```sh
 /etc/init.d/openwebui-ollama.sh status    # 狀態
 /etc/init.d/openwebui-ollama.sh restart   # 重啟

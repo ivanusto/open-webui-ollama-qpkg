@@ -108,6 +108,8 @@ Then run `/etc/init.d/openwebui-ollama.sh restart`. Notes:
 
 ## Operations Commands
 
+Run these as `admin` (for example with `sudo`). An account in the administrators group can control Docker without root, so the commands appear to work, but the QTS event log and the App Center link port are then not updated.
+
 ```sh
 /etc/init.d/openwebui-ollama.sh status    # Status
 /etc/init.d/openwebui-ollama.sh restart   # Restart
