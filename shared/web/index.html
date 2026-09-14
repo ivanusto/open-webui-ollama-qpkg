@@ -174,7 +174,7 @@
       pFooter: "This app contains only management scripts and this status page, not the Ollama or Open WebUI software itself; they are provided by the <a href=\"https://github.com/ollama/ollama\" target=\"_blank\" rel=\"noopener\">official Ollama image</a> and the <a href=\"https://github.com/open-webui/open-webui\" target=\"_blank\" rel=\"noopener\">official Open WebUI image</a> respectively. Package structure is based on <a href=\"https://github.com/qnap-dev/containerized-qpkg\" target=\"_blank\" rel=\"noopener\">qnap-dev/containerized-qpkg</a>.",
       emptyVal: "(Not set)",
       stateLoading: "Loading...",
-      stateConnecting: "Connecting...",
+      stateConnecting: "Starting Open WebUI (first launch can take a few minutes)...",
       gpuPillNvidia: "✅ NVIDIA GPU",
       gpuPillCpu: "CPU mode",
       gpuDetailNvidia: "NVIDIA GPU attached; Ollama runs with --gpus all acceleration",
@@ -215,7 +215,7 @@
       pFooter: "本套件僅包含管理指令碼與此狀態頁，不內含任何 Ollama 或 Open WebUI 程式本體；分別由 <a href=\"https://github.com/ollama/ollama\" target=\"_blank\" rel=\"noopener\">Ollama 官方映像</a> 與 <a href=\"https://github.com/open-webui/open-webui\" target=\"_blank\" rel=\"noopener\">Open WebUI 官方映像</a> 提供。套件結構參考 <a href=\"https://github.com/qnap-dev/containerized-qpkg\" target=\"_blank\" rel=\"noopener\">qnap-dev/containerized-qpkg</a>。",
       emptyVal: "（未設定）",
       stateLoading: "讀取中…",
-      stateConnecting: "連線中…",
+      stateConnecting: "Open WebUI 啟動中（首次啟動可能需要數分鐘）…",
       gpuPillNvidia: "✅ NVIDIA GPU",
       gpuPillCpu: "CPU 模式",
       gpuDetailNvidia: "NVIDIA GPU 已掛載，Ollama 使用 --gpus all 加速",
@@ -298,21 +298,25 @@
     loadPullProgress(s.state === "downloading-image" || s.state === "pull-failed");
   }
 
-  var missCount = 0;
   function load(){
     fetch("status.json", {cache:"no-store"}).then(function(r){ return r.json(); }).then(function(s){
-      missCount = 0;
       window.lastStatus = s;
       applyStatus(s);
     }).catch(function(){
-      // The real Open WebUI container may already have taken over this
-      // port mid-transition; reload so the browser picks it up.
-      missCount++;
+      // Between this page going away and Open WebUI accepting connections
+      // (its first launch runs database migrations and can take a few
+      // minutes) the port refuses connections. Reloading during that gap
+      // strands the browser on an error page that never retries, so keep
+      // this page open and reload only once Open WebUI's /health answers.
       window.lastStatus = null;
       var el = document.getElementById("state");
       el.className = "pill warn";
       el.textContent = i18n[currentLang].stateConnecting;
-      if (missCount >= 2) { window.location.reload(); }
+      fetch("/health", {cache:"no-store"}).then(function(r){
+        return r.ok ? r.json() : null;
+      }).then(function(h){
+        if (h && h.status === true) { window.location.reload(); }
+      }).catch(function(){});
     });
   }
 
