@@ -71,7 +71,40 @@ During the image download, a temporary single-use busybox status page container 
 | `STOP_TIMEOUT` | `60` | Timeout in seconds when stopping |
 | `CS_WAIT_TIMEOUT` | `900` | Timeout in seconds to wait for Container Station to be ready at boot (waits in background, does not slow down boot) |
 
-Modify variables and run `/etc/init.d/openwebui-ollama.sh restart` or restart the package from App Center. Configuration files are preserved during upgrade/reinstallation.
+Modify variables and run `/etc/init.d/openwebui-ollama.sh restart` or restart the package from App Center. Since 1.0.6, a container whose settings changed is recreated on restart so the new values take effect (models and data are kept). Configuration files are preserved during upgrade/reinstallation.
+
+## Using a Remote GPU Node (Ollama on Another Machine)
+
+Open WebUI can send inference to Ollama running on another machine, such as a desktop with an NVIDIA card or a DGX Spark / GB10, instead of the Ollama container on the NAS. No script changes are needed.
+
+**1. Expose Ollama on the remote node.** Ollama listens on `127.0.0.1` by default.
+
+- Windows: set the system environment variable `OLLAMA_HOST=0.0.0.0:11434`, restart Ollama, and allow inbound TCP 11434 in Windows Firewall.
+- Linux (systemd): run `sudo systemctl edit ollama`, add `Environment="OLLAMA_HOST=0.0.0.0:11434"` under `[Service]`, then `sudo systemctl restart ollama`.
+- Check from the NAS: `docker exec owui-frontend curl -s http://<node IP>:11434/api/tags` should return the model list.
+
+The Ollama API has no authentication. Keep port 11434 reachable only from your LAN.
+
+**2a. Point Open WebUI at the node (recommended).** In Open WebUI, go to Admin Settings → Connections → Ollama API. Change the URL to `http://<node IP>:11434`, or press "+" to add several nodes side by side (the NAS container, a desktop, a GB10). When the same model name exists on more than one node, requests are distributed among them. Set a Prefix ID per connection to tell identically named models apart.
+
+**2b. Or preset it in the configuration file.** Useful for fresh installs or rebuilds:
+
+```sh
+WEBUI_EXTRA_ARGS="-e OLLAMA_BASE_URLS=http://192.168.1.20:11434;http://192.168.1.30:11434"
+GPU_MODE="off"
+```
+
+Then run `/etc/init.d/openwebui-ollama.sh restart`. Notes:
+
+- `OLLAMA_BASE_URLS` (plural, semicolon-separated) takes precedence over the built-in `OLLAMA_BASE_URL`. `WEBUI_EXTRA_ARGS` is word-split, so no spaces are allowed inside a value.
+- Open WebUI stores connection settings in its database. Once they have been saved in the admin UI, the UI value wins and this variable is ignored.
+- The NAS Ollama container still starts. `GPU_MODE="off"` keeps it from reserving the NAS GPU.
+
+**Also good to know:**
+
+- Models pulled from the Open WebUI interface are downloaded to the Ollama node selected at that moment.
+- The "GPU Acceleration" field on the status page and the `diag` output describe the NAS container only, not remote nodes.
+- If the node serves an OpenAI-compatible API (vLLM, LiteLLM, llama.cpp server) rather than Ollama, add it under Connections → OpenAI API as `http://<node IP>:<port>/v1` instead.
 
 ## Operations Commands
 

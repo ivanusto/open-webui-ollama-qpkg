@@ -88,7 +88,46 @@ Container Station 保證有 `docker` CLI，但不保證有 compose plugin；套�
 | `STOP_TIMEOUT` | `60` | 停止時的逾時秒數 |
 | `CS_WAIT_TIMEOUT` | `900` | 開機時等待 Container Station 就緒的秒數（背景等待，不拖慢開機） |
 
-修改後執行 `/etc/init.d/openwebui-ollama.sh restart` 或從 App Center 重啟套件。設定檔在升級／重裝時會保留。
+修改後執行 `/etc/init.d/openwebui-ollama.sh restart` 或從 App Center 重啟套件。1.0.6 起，設定有變動的容器會在重啟時自動重建，
+讓新值生效（模型與資料保留）。設定檔在升級／重裝時會保留。
+
+## 使用遠端 GPU 節點（其他機器上的 Ollama）
+
+Open WebUI 可以把推論交給其他機器上的 Ollama，例如裝有 NVIDIA 顯示卡的桌機或 DGX Spark／GB10，
+而不使用 NAS 上的 Ollama 容器，不需要修改任何腳本。
+
+**1. 讓遠端節點的 Ollama 對區網開放。** Ollama 預設只聽 `127.0.0.1`。
+
+- Windows：設定系統環境變數 `OLLAMA_HOST=0.0.0.0:11434`，重新啟動 Ollama，並在 Windows 防火牆放行 TCP 11434 輸入。
+- Linux（systemd）：執行 `sudo systemctl edit ollama`，在 `[Service]` 下加入
+  `Environment="OLLAMA_HOST=0.0.0.0:11434"`，再執行 `sudo systemctl restart ollama`。
+- 從 NAS 驗證：`docker exec owui-frontend curl -s http://<節點IP>:11434/api/tags` 應回傳模型清單。
+
+Ollama API 沒有認證機制，11434 埠請只開放給區網。
+
+**2a. 在 Open WebUI 指向節點（建議）。** 進入 Open WebUI 的「管理員設定 → Connections → Ollama API」，
+把網址改成 `http://<節點IP>:11434`，或按「+」並列多個節點（NAS 容器、桌機、GB10）。
+多個節點上有同名模型時，請求會分散到各節點；可為每個連線設定 Prefix ID 以區分同名模型。
+
+**2b. 或寫進設定檔預先帶入。** 適合新安裝或重建時使用：
+
+```sh
+WEBUI_EXTRA_ARGS="-e OLLAMA_BASE_URLS=http://192.168.1.20:11434;http://192.168.1.30:11434"
+GPU_MODE="off"
+```
+
+接著執行 `/etc/init.d/openwebui-ollama.sh restart`。注意事項：
+
+- `OLLAMA_BASE_URLS`（複數、以分號分隔）優先於套件內建的 `OLLAMA_BASE_URL`。`WEBUI_EXTRA_ARGS` 會依空白切分，值裡不可含空白。
+- Open WebUI 會把連線設定存進資料庫；一旦在管理介面儲存過，就以介面上的值為準，此變數會被忽略。
+- NAS 上的 Ollama 容器仍會啟動；設 `GPU_MODE="off"` 可避免它佔用 NAS 的 GPU。
+
+**其他說明：**
+
+- 在 Open WebUI 介面下載模型時，會下載到當下選定的那個 Ollama 節點。
+- 狀態頁的「GPU 加速」欄位與 `diag` 輸出只反映 NAS 上的容器，不代表遠端節點。
+- 若節點提供的是 OpenAI 相容 API（vLLM、LiteLLM、llama.cpp server）而非 Ollama，請改在
+  「Connections → OpenAI API」新增 `http://<節點IP>:<埠>/v1`。
 
 ## 維運指令
 
@@ -144,5 +183,5 @@ GitHub Actions 會在每次 push 建置 qpkg 工件，推送 `v*` 標籤時自�
 
 ## 授權與商標
 
-管理指令碼以 MIT 授權。Ollama 與 Open WebUI 為各自上游專案的產品，其軟體與映像檔適用各自的授權條款。
+管理指令碼以 Apache License 2.0 授權。Ollama 與 Open WebUI 為各自上游專案的產品，其軟體與映像檔適用各自的授權條款。
 本專案與 Ollama、Open WebUI、QNAP 皆無隸屬關係。

@@ -55,7 +55,16 @@
 #WEBUI_PIDS_LIMIT="512"
 
 # Extra "docker run" arguments for the Open WebUI container (advanced).
+# Values are word-split, so no spaces inside a single argument.
 #WEBUI_EXTRA_ARGS=""
+#
+# Example: run inference on Ollama instances on other machines (a desktop
+# with an NVIDIA card, a DGX Spark / GB10, ...). Semicolon-separated;
+# takes precedence over the built-in container. Each remote Ollama must
+# listen on the LAN (OLLAMA_HOST=0.0.0.0:11434). Once these connections
+# have been saved in Admin Settings > Connections, the UI value wins over
+# this variable.
+#WEBUI_EXTRA_ARGS="-e OLLAMA_BASE_URLS=http://192.168.1.20:11434;http://192.168.1.30:11434"
 
 # --- Shared ---------------------------------------------------
 # Private bridge network the two containers talk to each other over

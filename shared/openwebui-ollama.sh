@@ -81,6 +81,14 @@ default_volume() {
     [ -n "$DEFVOL" ] && echo "$DEFVOL" || echo "/share/CACHEDEV1_DATA"
 }
 
+# App Center builds the icon's "Open" link from Web_Port in qpkg.conf,
+# which QDK fills from QPKG_WEB_PORT (3000) at install time. Keep it in
+# step with WEBUI_PORT so a custom port doesn't leave the link on 3000.
+sync_web_port() {
+    [ "$(/sbin/getcfg "$QPKG_NAME" Web_Port -f "$CONF" 2>/dev/null)" = "$WEBUI_PORT" ] && return 0
+    /sbin/setcfg "$QPKG_NAME" Web_Port "$WEBUI_PORT" -f "$CONF" 2>/dev/null
+}
+
 gen_secret() {
     if command -v openssl >/dev/null 2>&1; then
         openssl rand -hex 32
@@ -221,6 +229,53 @@ container_running() {
     [ "$("$DOCKER" inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" = "true" ]
 }
 
+# ----- configuration fingerprints --------------------------------------
+# "docker start" reuses a container exactly as it was created, so edits
+# to openwebui-ollama.conf would never reach an existing container. Every
+# setting that ends up on a "docker run" line is hashed and recorded once
+# the container is up; start/restart recreates a container whose hash
+# changed. The detected GPU state is left out on purpose (the GPU
+# self-heal and CPU fallback own that), so a runtime that registers late
+# at boot never triggers a recreate.
+
+fingerprint() {
+    if command -v md5sum >/dev/null 2>&1; then
+        printf '%s\n' "$@" | md5sum | cut -c1-32
+    else
+        printf '%s\n' "$@" | cksum | awk '{print $1 "-" $2}'
+    fi
+}
+
+ollama_fingerprint() {
+    fingerprint "$OLLAMA_IMAGE" "$OLLAMA_DATA_PATH" "$OLLAMA_PUBLISH_PORT" \
+        "$OLLAMA_NUM_PARALLEL" "$OLLAMA_MAX_LOADED_MODELS" "$OLLAMA_EXTRA_ARGS" \
+        "$GPU_MODE" "$NETWORK_NAME" "$TZ"
+}
+
+webui_fingerprint() {
+    fingerprint "$WEBUI_IMAGE" "$WEBUI_DATA_PATH" "$WEBUI_PORT" "$WEBUI_PIDS_LIMIT" \
+        "$WEBUI_EXTRA_ARGS" "$WEBUI_SECRET_KEY" "$OLLAMA_CONTAINER_NAME" \
+        "$NETWORK_NAME" "$TZ"
+}
+
+fingerprint_file() {
+    # $1 = container name
+    echo "$QPKG_ROOT/.conf-$1"
+}
+
+# True if the container was created from different settings. No record
+# (a container created by an older version of this app) counts as
+# unchanged: the container is adopted as-is and recorded on this start.
+config_changed() {
+    # $1 = container name, $2 = current fingerprint
+    [ -f "$(fingerprint_file "$1")" ] && [ "$(cat "$(fingerprint_file "$1")" 2>/dev/null)" != "$2" ]
+}
+
+save_fingerprint() {
+    # $1 = container name, $2 = fingerprint
+    echo "$2" > "$(fingerprint_file "$1")"
+}
+
 run_ollama_once() {
     # $1 = extra GPU args ("--gpus all" or "")
     "$DOCKER" run -d \
@@ -241,16 +296,23 @@ run_ollama() {
     # Idempotent: never "docker run" over an existing container — that
     # yields a name Conflict (and the GPU retry would then needlessly
     # recreate a GPU container as CPU-only).
+    OLLAMA_FP=$(ollama_fingerprint)
     if container_exists "$OLLAMA_CONTAINER_NAME"; then
         container_running "$OLLAMA_CONTAINER_NAME" && return 0
+        if config_changed "$OLLAMA_CONTAINER_NAME" "$OLLAMA_FP"; then
+            log "Ollama settings changed; recreating the container to apply them (models are kept)." 4
+            "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
         # GPU self-heal: a container recreated during an early boot (before
         # the NVIDIA runtime registered with docker) is stuck CPU-only.
         # While it is stopped anyway, recreate it with the GPU attached.
-        if [ "$GPU_MODE" != "off" ] && detect_gpu && ! ollama_gpu_active; then
+        elif [ "$GPU_MODE" != "off" ] && detect_gpu && ! ollama_gpu_active; then
             log "GPU is available but not attached to the existing Ollama container; recreating it with GPU pass-through (models are kept)." 4
             "$DOCKER" rm "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
         else
-            "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+            "$DOCKER" start "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1 && {
+                save_fingerprint "$OLLAMA_CONTAINER_NAME" "$OLLAMA_FP"
+                return 0
+            }
             log "Existing Ollama container failed to start; recreating it (models are kept)." 2
             "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
         fi
@@ -269,7 +331,11 @@ run_ollama() {
         OUT=$(run_ollama_once "" 2>&1 >/dev/null)
         RC=$?
     fi
-    [ $RC -eq 0 ] || log "Failed to start the Ollama container: $OUT" 1
+    if [ $RC -eq 0 ]; then
+        save_fingerprint "$OLLAMA_CONTAINER_NAME" "$OLLAMA_FP"
+    else
+        log "Failed to start the Ollama container: $OUT" 1
+    fi
     return $RC
 }
 
@@ -304,15 +370,26 @@ name_conflict() {
 
 run_webui() {
     # Idempotent, same reason as run_ollama.
+    WEBUI_FP=$(webui_fingerprint)
     if container_exists "$WEBUI_CONTAINER_NAME"; then
         container_running "$WEBUI_CONTAINER_NAME" && return 0
-        OUT=$("$DOCKER" start "$WEBUI_CONTAINER_NAME" 2>&1 >/dev/null) && return 0
-        if port_conflict "$OUT"; then
-            stop_landing
-            sleep 5
-            "$DOCKER" start "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1 && return 0
+        if config_changed "$WEBUI_CONTAINER_NAME" "$WEBUI_FP"; then
+            log "Open WebUI settings changed; recreating the container to apply them (data is kept)." 4
+        else
+            OUT=$("$DOCKER" start "$WEBUI_CONTAINER_NAME" 2>&1 >/dev/null) && {
+                save_fingerprint "$WEBUI_CONTAINER_NAME" "$WEBUI_FP"
+                return 0
+            }
+            if port_conflict "$OUT"; then
+                stop_landing
+                sleep 5
+                "$DOCKER" start "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1 && {
+                    save_fingerprint "$WEBUI_CONTAINER_NAME" "$WEBUI_FP"
+                    return 0
+                }
+            fi
+            log "Existing Open WebUI container failed to start ($OUT); recreating it (data is kept)." 2
         fi
-        log "Existing Open WebUI container failed to start ($OUT); recreating it (data is kept)." 2
         "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
     fi
     mkdir -p "$WEBUI_DATA_PATH"
@@ -329,7 +406,11 @@ run_webui() {
         OUT=$(run_webui_once 2>&1 >/dev/null)
         RC=$?
     fi
-    [ $RC -eq 0 ] || log "Failed to start the Open WebUI container: $OUT" 1
+    if [ $RC -eq 0 ]; then
+        save_fingerprint "$WEBUI_CONTAINER_NAME" "$WEBUI_FP"
+    else
+        log "Failed to start the Open WebUI container: $OUT" 1
+    fi
     return $RC
 }
 
@@ -361,10 +442,12 @@ stop_landing() {
     "$DOCKER" rm -f "$LANDING_NAME" >/dev/null 2>&1
     # A daemon hiccup can orphan the host-net httpd while removing its
     # container record, leaving WEBUI_PORT bound by a process docker no
-    # longer knows about. Kill strays by their exact cmdline signature.
+    # longer knows about. Kill strays by their exact cmdline signature
+    # (the port must be followed by a space or end of line, so port 300
+    # never matches an httpd on 3000).
     # SIGKILL is required: the httpd is PID 1 of its own namespace and
     # ignores SIGTERM by default.
-    for PID in $(ps 2>/dev/null | grep "httpd -f -p $WEBUI_PORT" | grep -v grep | awk '{print $1}'); do
+    for PID in $(ps 2>/dev/null | grep -E "httpd -f -p $WEBUI_PORT( |\$)" | grep -v grep | awk '{print $1}'); do
         kill -9 "$PID" 2>/dev/null
     done
 }
@@ -500,6 +583,7 @@ do_remove() {
     "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
     stop_landing
     rm -f "$QPKG_ROOT/.images-ready"
+    rm -f "$(fingerprint_file "$OLLAMA_CONTAINER_NAME")" "$(fingerprint_file "$WEBUI_CONTAINER_NAME")"
     "$DOCKER" network rm "$NETWORK_NAME" >/dev/null 2>&1
     log "Containers and network removed. Ollama models ($OLLAMA_DATA_PATH) and Open WebUI data ($WEBUI_DATA_PATH) were kept." 4
 }
@@ -510,9 +594,16 @@ do_update() {
     "$DOCKER" rm -f "$OLLAMA_CONTAINER_NAME" >/dev/null 2>&1
     "$DOCKER" rm -f "$WEBUI_CONTAINER_NAME" >/dev/null 2>&1
     ensure_network
+    stop_landing
     if run_ollama && run_webui; then
         write_status "running"
         log "Updated and restarted (data kept)." 4
+    else
+        # The old containers are already gone at this point, so say so
+        # loudly instead of leaving the previous "running" status behind.
+        write_status "error"
+        log "Images updated but a container failed to start, so the app is not running. Fix the cause (see $LOG_FILE), then restart the app." 1
+        return 1
     fi
 }
 
@@ -544,6 +635,10 @@ fi
 load_conf
 
 case "$1" in
+    start|restart|_bg_start) sync_web_port ;;
+esac
+
+case "$1" in
     start)
         ENABLED=$(/sbin/getcfg "$QPKG_NAME" Enable -u -d FALSE -f "$CONF")
         [ "$ENABLED" = "TRUE" ] || { echo "$QPKG_NAME is disabled."; exit 1; }
@@ -568,7 +663,7 @@ case "$1" in
         { image_present "$OLLAMA_IMAGE" && image_present "$WEBUI_IMAGE"; } || spawn_bgpull
         ;;
     update)
-        do_update
+        do_update || exit 1
         ;;
     remove)
         do_remove
@@ -634,6 +729,9 @@ case "$1" in
             exit 0  # a pull is already running
         fi
         echo $$ > "$PIDFILE"
+        # A result left over from an earlier pull must never be read as
+        # this pull's outcome if the job below dies before writing one.
+        rm -f "$LOG_DIR/pull.rc"
         write_status "downloading-image"
         # Registry access / DNS can still be settling right after boot —
         # retry transient pull failures before declaring defeat.

@@ -55,9 +55,13 @@ pkg_post_install(){
     chmod +x "${SYS_QPKG_DIR}/openwebui-ollama.sh"
     mkdir -p "${SYS_QPKG_DIR}/logs"
 
-    # Warn (don't abort) if the WebUI port is already taken.
-    if netstat -lnt 2>/dev/null | grep -q ":3000 "; then
-        /sbin/write_log "[OpenWebUIOllama] Port 3000 is already in use. Set WEBUI_PORT in ${SYS_QPKG_DIR}/openwebui-ollama.conf to a free port before starting the app." 2
+    # Warn (don't abort) if the configured WebUI port is already taken.
+    # Read it from the (possibly kept) configuration instead of assuming
+    # the default, so a reinstall with a custom WEBUI_PORT checks the
+    # right port.
+    WEBUI_PORT=$(. "${SYS_QPKG_DIR}/openwebui-ollama.conf" >/dev/null 2>&1; echo "${WEBUI_PORT:-3000}")
+    if netstat -lnt 2>/dev/null | grep -q ":${WEBUI_PORT} "; then
+        /sbin/write_log "[OpenWebUIOllama] Port ${WEBUI_PORT} is already in use. Set WEBUI_PORT in ${SYS_QPKG_DIR}/openwebui-ollama.conf to a free port, then restart the app." 2
     fi
 
     # Kick off both image downloads in the background via the system
