@@ -1,0 +1,20 @@
+#!/bin/sh
+# Test stand-in for QTS /sbin/getcfg: getcfg SECTION KEY [-u] [-d DEFAULT] -f FILE
+SECTION="$1"; KEY="$2"; shift 2
+FILE=""; DEF=""; UPPER=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -f) FILE="$2"; shift 2 ;;
+        -d) DEF="$2"; shift 2 ;;
+        -u) UPPER=1; shift ;;
+        *) shift ;;
+    esac
+done
+VAL=""
+[ -f "$FILE" ] && VAL=$(awk -v s="[$SECTION]" -v k="$KEY" '
+    /^\[/ { in_s = ($0 == s); next }
+    in_s { i = index($0, "="); if (i > 0) { kk = substr($0, 1, i - 1); gsub(/[ \t]+$/, "", kk);
+           if (kk == k) { v = substr($0, i + 1); gsub(/^[ \t]+/, "", v); print v; exit } } }' "$FILE")
+[ -n "$VAL" ] || VAL="$DEF"
+[ "$UPPER" = 1 ] && VAL=$(echo "$VAL" | tr '[:lower:]' '[:upper:]')
+echo "$VAL"

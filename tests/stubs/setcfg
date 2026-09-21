@@ -1,0 +1,16 @@
+#!/bin/sh
+# Test stand-in for QTS /sbin/setcfg: setcfg SECTION KEY VALUE -f FILE
+SECTION="$1"; KEY="$2"; VALUE="$3"; shift 3
+FILE=""
+while [ $# -gt 0 ]; do
+    case "$1" in -f) FILE="$2"; shift 2 ;; *) shift ;; esac
+done
+[ -n "$FILE" ] || exit 1
+touch "$FILE"
+awk -v s="[$SECTION]" -v k="$KEY" -v v="$VALUE" '
+    function flush() { if (in_s && !done) { print k " = " v; done = 1 } }
+    /^\[/ { flush(); in_s = ($0 == s); seen = seen || in_s; print; next }
+    in_s { i = index($0, "="); kk = substr($0, 1, i - 1); gsub(/[ \t]+$/, "", kk);
+           if (i > 0 && kk == k) { print k " = " v; done = 1; next } }
+    { print }
+    END { flush(); if (!seen) { print s; print k " = " v } }' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"

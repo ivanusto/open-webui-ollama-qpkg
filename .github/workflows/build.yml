@@ -8,43 +8,104 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+# Every action is pinned to a full commit SHA with its version in a
+# comment, and QDK to a commit that must match the Dockerfile.
+# scripts/check-ci-pins.sh (make check-pins) fails the build otherwise.
+env:
+  QDK_REF: "b7b5f4c86ebe95b10a62d64725515e7cdcf4bb35"
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The lifecycle test replays an upgrade from the v1.0.8 tag.
+          fetch-depth: 0
+
+      - name: Lint (shellcheck)
+        run: make lint
+
+      - name: Check image and CI pins
+        run: make check-pins
+
+      - name: Lifecycle test
+        run: make test-lifecycle
+
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Tag must match QPKG_VER
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VER=$(sed -n 's/^QPKG_VER="\(.*\)"/\1/p' qpkg.cfg)
+          [ "v$VER" = "$GITHUB_REF_NAME" ] || {
+            echo "qpkg.cfg says $VER but tag is $GITHUB_REF_NAME" >&2
+            exit 1
+          }
 
       - name: Install QDK
         run: |
           sudo apt-get update
-          sudo apt-get install -y git make rsync xz-utils dos2unix
-          git clone --depth 1 https://github.com/qnap-dev/QDK.git /tmp/QDK
-          cd /tmp/QDK && sudo ./InstallToUbuntu.sh install
+          sudo apt-get install -y git make gcc libc6-dev rsync xz-utils dos2unix
+          git init -q /tmp/QDK
+          cd /tmp/QDK
+          git remote add origin https://github.com/qnap-dev/QDK.git
+          git fetch -q --depth 1 origin "$QDK_REF"
+          git checkout -q FETCH_HEAD
+          sudo ./InstallToUbuntu.sh install
 
       - name: Normalize line endings
         run: |
-          find . -type f \( -name '*.sh' -o -name 'package_routines' -o -name 'qpkg.cfg' -o -name '*.conf*' \) -exec dos2unix {} +
+          find . -type f \( -name '*.sh' -o -name 'package_routines' -o -name 'qpkg.cfg' -o -name '*.conf*' -o -name 'images.lock' \) -exec dos2unix {} +
 
       - name: Build QPKG
         run: |
           export PATH="/usr/share/QDK/bin:$PATH"
           qbuild --build-arch x86_64
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Release files and checksums
+        run: make release-files
+
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          name: OpenWebUIOllama-qpkg
+          subject-path: |
+            build/*.qpkg
+            build/images.lock
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qpkg
           path: |
             build/*.qpkg
             build/*.md5
+            build/images.lock
+            build/LICENSE
+            build/NOTICE.md
+            build/SHA256SUMS
 
       - name: Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: |
             build/*.qpkg
             build/*.md5
+            build/images.lock
+            build/LICENSE
+            build/NOTICE.md
+            build/SHA256SUMS
           generate_release_notes: true

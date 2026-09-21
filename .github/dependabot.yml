@@ -1,0 +1,14 @@
+# Dependabot proposes updates for the pinned actions (it keeps the
+# "# vX.Y.Z" comment in step) and the Dockerfile base image. QDK_REF and
+# the shellcheck image in the Makefile are not covered: bump those by hand
+# and let scripts/check-ci-pins.sh confirm the result.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
