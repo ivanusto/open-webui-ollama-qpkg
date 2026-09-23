@@ -57,7 +57,7 @@ openwebui-ollama.sh start
 
 - **設定檔保留。** 1.0.x 的 `WEBUI_PORT` 仍然有效（新鍵名為 `WEB_PORT`），`WEBUI_SECRET_KEY` 沿用，登入 session 不會失效。
 - **映像改為鎖定版本。** 1.0.x 追的是 `ollama/ollama:latest` 與 `open-webui:main`；2.0.0 起使用 `images.lock` 裡以 digest 鎖定的版本，`update` 不再自動換到最新版。若 `.conf` 裡自行設定過 `OLLAMA_IMAGE`／`WEBUI_IMAGE`，以你的設定為準。
-- **第一次啟動會在背景下載新映像，然後兩個容器各重建一次。** 下載期間網頁埠顯示狀態頁，App Center 不會卡住。模型與聊天資料在掛載的目錄裡，不受影響。
+- **第一次啟動會在背景下載新映像，然後兩個容器各重建一次。** 2.0.2 起，下載期間既有容器繼續以舊版服務，新映像完整下載後才替換；下載失敗時維持舊版並在記錄中說明。模型與聊天資料在掛載的目錄裡，不受影響。
 - **遠端 Ollama 有了獨立的設定鍵。** 原本寫在 `WEBUI_EXTRA_ARGS` 裡的 `-e OLLAMA_BASE_URLS=...` 仍然有效，建議改寫成 `OLLAMA_BASE_URLS="..."`。已經在用的 Open WebUI 以資料庫裡的連線設定為準，這兩種寫法都只影響首次啟動。
 
 ## 設計重點
@@ -78,6 +78,8 @@ openwebui-ollama.sh start
 
 映像下載期間，一次性的 busybox 狀態頁容器先佔住網頁埠顯示進度，Open WebUI 的 `/health` 回應後才換手，
 網址不變。
+
+升級而換了鎖定版本時不使用狀態頁：既有容器繼續以舊版服務，新映像完整下載後才替換（上游發版後的數天內，映像站的 CDN 可能很慢）；下載失敗時舊版照常運作。
 
 ## 設定檔（openwebui-ollama.conf）
 
@@ -159,7 +161,7 @@ ENABLE_OLLAMA="false"
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify OpenWebUIOllama_2.0.1_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.1
+gh attestation verify OpenWebUIOllama_2.0.2_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.2
 ```
 
 ## 從原始碼建置與測試

@@ -288,6 +288,7 @@ load_conf() {
     TZ="${TZ:-$(detect_tz)}"
     STOP_TIMEOUT="${STOP_TIMEOUT:-30}"
     CS_WAIT_TIMEOUT="${CS_WAIT_TIMEOUT:-900}"
+    PULL_RETRY_DELAY="${PULL_RETRY_DELAY:-30}"
     HEALTH_PATH="${HEALTH_PATH:-/}"
 
     # Images: the .conf file overrides images.lock.
@@ -489,6 +490,17 @@ run_container() {
     RC_IMG=$(cvar "$RC_ID" IMAGE)
     RC_FP=$(container_fingerprint "$RC_ID")
 
+    # KEEP_OLD=1: the new image is still downloading. Start the existing
+    # container on the image it already has and leave its fingerprint
+    # alone, so the download job recreates it once the image is there.
+    if [ "$KEEP_OLD" = "1" ] && container_exists "$RC_NAME" && ! image_present "$RC_IMG"; then
+        container_running "$RC_NAME" && return 0
+        [ "$RC_ID" = "$WEB_ID" ] && stop_landing
+        RC_OUT=$("$DOCKER" start "$RC_NAME" 2>&1 >/dev/null) && return 0
+        log "Could not start the existing '$RC_ID' container while its new image downloads: $RC_OUT" 1
+        return 1
+    fi
+
     if container_exists "$RC_NAME"; then
         RC_WHY=""
         if config_changed "$RC_NAME" "$RC_FP"; then
@@ -662,12 +674,28 @@ do_start() {
         write_status "running"
         report_digests
         log "$DISPLAY_NAME started (port $WEB_PORT)." 4
+    elif all_keepable && (KEEP_OLD=1; run_all); then
+        # An upgrade changed a pin. Never take the app down for a download
+        # of unknown length: keep the previous version serving until the
+        # new image is complete.
+        write_status "updating"
+        log "New images are downloading in the background; $DISPLAY_NAME keeps running the previous version until they are ready (progress: $PULL_LOG)." 4
+        spawn_detached _bg_pull
     else
         write_status "downloading-image"
         start_landing
         log "Images not present yet. Container Station is downloading them in the background; the app starts automatically when ready (progress: $PULL_LOG)." 4
         spawn_detached _bg_pull
     fi
+}
+
+# Every enabled container either has its image or exists already, so the
+# app can run on what is there while a changed pin downloads.
+all_keepable() {
+    for C in $(enabled_containers); do
+        image_present "$(cvar "$C" IMAGE)" && continue
+        container_exists "$(cvar "$C" CONTAINER_NAME)" || return 1
+    done
 }
 
 do_stop() {
@@ -921,23 +949,33 @@ main() {
                 exit 1
             fi
             PIDFILE="$LOG_DIR/pull.pid"
-            if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
-                exit 0
-            fi
+            # A pull left by an earlier start (possibly an older version of
+            # this script) finishes first; this job then applies the result,
+            # which that one may not know how to do.
+            WAITED=0
+            while [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; do
+                WAITED=1
+                sleep 10
+            done
+            [ "$WAITED" = 1 ] && load_conf
             echo $$ > "$PIDFILE"
             # A result left over from an earlier pull must never be read
             # as this pull's outcome.
             rm -f "$LOG_DIR/pull.rc"
-            write_status "downloading-image"
-            container_exists "$LANDING_NAME" || start_landing
+            if container_running "$(cvar "$WEB_ID" CONTAINER_NAME)"; then
+                write_status "updating"
+            else
+                write_status "downloading-image"
+                container_exists "$LANDING_NAME" || start_landing
+            fi
             # Registry access and DNS can still be settling after boot.
             ( ATTEMPT=1
               while :; do
                   pull_images && { echo 0 > "$LOG_DIR/pull.rc"; break; }
                   [ "$ATTEMPT" -ge 3 ] && { echo 1 > "$LOG_DIR/pull.rc"; break; }
                   ATTEMPT=$((ATTEMPT + 1))
-                  echo "$(date '+%Y-%m-%d %H:%M:%S') pull failed; retry $ATTEMPT/3 in 30s" >> "$PULL_LOG"
-                  sleep 30
+                  echo "$(date '+%Y-%m-%d %H:%M:%S') pull failed; retry $ATTEMPT/3 in ${PULL_RETRY_DELAY}s" >> "$PULL_LOG"
+                  sleep "$PULL_RETRY_DELAY"
               done ) &
             PULL_JOB=$!
             while kill -0 "$PULL_JOB" 2>/dev/null; do
@@ -951,6 +989,9 @@ main() {
                 load_conf
                 ensure_network
                 stop_landing
+                # Containers kept on the previous version are running and
+                # must be replaced too.
+                RECREATE_RUNNING=1
                 if run_all; then
                     touch "$QPKG_ROOT/.images-ready"
                     write_status "running"
@@ -960,6 +1001,10 @@ main() {
                     write_status "error"
                     log "Images downloaded but a container failed to start. See $LOG_FILE." 1
                 fi
+            elif all_running; then
+                rm -f "$WEB_DIR/pull-progress.txt"
+                write_status "running"
+                log "Downloading the new images failed; $DISPLAY_NAME is still running the previous version. Restart the app to try again, or run '/etc/init.d/$SCRIPT_NAME diag' to check registry access. Details: $PULL_LOG" 2
             else
                 tail -n 15 "$PULL_LOG" > "$WEB_DIR/pull-progress.txt" 2>/dev/null
                 write_status "pull-failed"

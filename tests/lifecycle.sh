@@ -100,6 +100,9 @@ case "\$1" in
         [ "\$G" = absent ] || echo " Runtimes: nvidia runc"
         exit 0
         ;;
+    pull)
+        [ -f "$WORK/fake-pull-fail" ] && { echo "fake registry: connection reset" >&2; exit 1; }
+        ;;
     run)
         case " \$* " in *" --gpus "*)
             echo 'docker: Error response from daemon: could not select device driver "" with capabilities: [[gpu]].' >&2
@@ -140,6 +143,7 @@ NETWORK_NAME="$NET"
 WEB_PORT="$PORT"
 TZ="UTC"
 STOP_TIMEOUT="1"
+PULL_RETRY_DELAY="1"
 EOF
 docker rmi "$IMAGE" "${IMAGE%@*}" "$ALT_IMAGE" "${ALT_IMAGE%@*}" >/dev/null 2>&1
 docker image inspect "$IMAGE" >/dev/null 2>&1 && echo "  note: $IMAGE still present (in use elsewhere); download path not exercised"
@@ -303,6 +307,7 @@ WEBUI_PORT="$PORT"
 GPU_MODE="off"
 TZ="UTC"
 STOP_TIMEOUT="1"
+PULL_RETRY_DELAY="1"
 EOF
     "$APP" start 2>/dev/null
     wait_for "v1.0.8 running" 'running "$C_OLLAMA" && running "$C_WEBUI"' 60
@@ -322,7 +327,8 @@ EOF
     "$APP" start 2>/dev/null
     T1=$(date +%s)
     check "start returns within 10 s although both images are new" '[ $((T1 - T0)) -le 10 ]'
-    check "start goes to the download path" '[ "$(state)" = downloading-image ]'
+    check "start keeps the previous version serving" '[ "$(state)" = updating ] || [ "$(state)" = running ]'
+    check "no status page over the running app" '! docker inspect "$C_WEBUI-landing" >/dev/null 2>&1'
     wait_for "state becomes running" '[ "$(state)" = running ]' 180
     wait_for "web UI answers on the old port" 'http_ok "$PORT" /health' 30
     check "ollama recreated once" '[ "$(created "$C_OLLAMA")" != "$O5" ]'
@@ -335,6 +341,33 @@ EOF
     C6=$(created "$C_WEBUI")
     "$APP" restart 2>/dev/null
     check "second start after the upgrade recreates nothing" '[ "$(created "$C_WEBUI")" = "$C6" ]'
+
+    echo "== 13. a failed download of a new pin keeps the previous version"
+    # A registry CDN can stall on a fresh release (seen with open-webui v0.11.4).
+    touch "$WORK/fake-pull-fail"
+    ZERO=$(printf '%064d' 0)
+    sed -i "s|^WEBUI_IMAGE=.*|WEBUI_IMAGE=traefik/whoami:v1.10.9@sha256:$ZERO|" "$QPKG_ROOT_OVERRIDE/images.lock"
+    O7=$(created "$C_OLLAMA"); W7=$(created "$C_WEBUI")
+    "$APP" restart 2>/dev/null
+    check "restart goes to updating" '[ "$(state)" = updating ]'
+    check "web UI still answers while downloading" 'http_ok "$PORT" /health'
+    wait_for "failed download ends in running" '[ "$(state)" = running ]' 60
+    check "failure logged as a warning" '[ "$(logged "still running the previous version")" -ge 1 ]'
+    check "nothing recreated" '[ "$(created "$C_OLLAMA")" = "$O7" ] && [ "$(created "$C_WEBUI")" = "$W7" ]'
+    check "web UI still answers after the failure" 'http_ok "$PORT" /health'
+    check "status exits 0" '"$APP" status >/dev/null'
+
+    # A pull left by an older version is still running: the new job waits
+    # for it and then applies the result itself.
+    sleep 12 &
+    echo $! > "$QPKG_ROOT_OVERRIDE/logs/pull.pid"
+    "$APP" restart 2>/dev/null
+    sleep 5
+    check "new job waits for the earlier pull" '[ "$(state)" = updating ] && [ "$(logged "still running the previous version")" = 1 ]'
+    wait_for "then runs its own attempt" '[ "$(logged "still running the previous version")" = 2 ]' 60
+    check "web UI still answers" 'http_ok "$PORT" /health'
+    rm -f "$WORK/fake-pull-fail"
+    sed -i "s|^WEBUI_IMAGE=.*|WEBUI_IMAGE=$ALT_IMAGE|" "$QPKG_ROOT_OVERRIDE/images.lock"
     "$APP" remove 2>/dev/null
     check "upgrade scenario cleaned up" '! docker network inspect "$LEGACY_NET" >/dev/null 2>&1'
 fi

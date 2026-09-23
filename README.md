@@ -49,7 +49,7 @@ openwebui-ollama.sh start
 
 - **Your configuration is kept.** `WEBUI_PORT` from 1.0.x still works (the new key is `WEB_PORT`), and `WEBUI_SECRET_KEY` is reused, so login sessions stay valid.
 - **Images are now pinned.** 1.0.x followed `ollama/ollama:latest` and `open-webui:main`; from 2.0.0 the digests pinned in `images.lock` are used, and `update` no longer moves to the newest release. If you set `OLLAMA_IMAGE` or `WEBUI_IMAGE` in your `.conf`, your setting wins.
-- **The first start downloads the new images in the background, then recreates each container once.** The status page holds the web port during the download, so App Center does not hang. Models and chat data live in the mounted folders and are not affected.
+- **The first start downloads the new images in the background, then recreates each container once.** Since 2.0.2 the existing containers keep running on the previous version during the download and are replaced only when the new images are complete; if the download fails, the previous version stays up and the log says so. Models and chat data live in the mounted folders and are not affected.
 - **Remote Ollama has its own key.** `-e OLLAMA_BASE_URLS=...` inside `WEBUI_EXTRA_ARGS` still works; `OLLAMA_BASE_URLS="..."` is the recommended form. An Open WebUI that is already in use keeps the connections stored in its database, so both forms only matter on its first start.
 
 ## Design notes
@@ -67,6 +67,8 @@ openwebui-ollama.sh start
 ### 3. The "downloading" experience on first install
 
 While the images download, a throwaway busybox status page holds the web port and shows progress. It hands over only after Open WebUI answers `/health`; the address does not change.
+
+On an upgrade that changes a pin, the status page is not used: the existing containers keep serving the previous version until the new images are complete (a registry CDN can be slow for days after a release), and a failed download leaves them running.
 
 ## Configuration (openwebui-ollama.conf)
 
@@ -142,7 +144,7 @@ Each release carries `SHA256SUMS` and a GitHub build provenance attestation:
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify OpenWebUIOllama_2.0.1_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.1
+gh attestation verify OpenWebUIOllama_2.0.2_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.2
 ```
 
 ## Building and testing

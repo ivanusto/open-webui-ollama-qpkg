@@ -81,6 +81,7 @@
       states: {
         "running": ["ok", "Running"], "starting": ["warn", "Starting..."], "stopped": ["warn", "Stopped"],
         "downloading-image": ["warn", "Downloading image..."],
+        "updating": ["ok", "Running, downloading an update..."],
         "waiting-for-container-station": ["warn", "Waiting for Container Station..."],
         "pull-failed": ["err", "Download failed, run diag"],
         "no-container-engine": ["err", "Container Station not found"], "error": ["err", "Error, see the log"]
@@ -103,6 +104,7 @@
       states: {
         "running": ["ok", "執行中"], "starting": ["warn", "啟動中…"], "stopped": ["warn", "已停止"],
         "downloading-image": ["warn", "映像檔下載中…"],
+        "updating": ["ok", "執行中，背景下載更新…"],
         "waiting-for-container-station": ["warn", "等待 Container Station 就緒…"],
         "pull-failed": ["err", "下載失敗，請執行 diag"],
         "no-container-engine": ["err", "找不到 Container Station"], "error": ["err", "發生錯誤，請查看記錄"]
