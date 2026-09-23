@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.1
+
+- Open WebUI 升到 `v0.11.4`（`shared/images.lock` 換 digest）。上游這版含安全修正：透過身分提供者登入失敗時不再把憑證寫進日誌、登出會中斷該帳號所有連線、terminal 權限每 10 秒重查、Mermaid 與 SVG 預覽不再跟隨跨來源參照。
+- 升級時會在背景下載新映像，只重建 Open WebUI 容器；Ollama、模型與聊天資料不受影響。
+- 若 `.conf` 裡自行設定過 `WEBUI_IMAGE`，以你的設定為準，不會換版。
+
 ## v2.0.0
 
 遷回 [qpkg-template](https://github.com/ivanusto/qpkg-template) v0.2.1 的骨架。服務腳本從 785 行的單檔拆成 App 層 `shared/openwebui-ollama.sh` 與範本核心 `shared/lib/qpkg-core.sh`。`QPKG_NAME` 不變，App Center 原地升級。
