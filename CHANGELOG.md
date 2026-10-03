@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.0.3
+
+- Ollama 升到 `0.35.1`（`shared/images.lock` 換 digest）。這段期間上游修正了從 HuggingFace 拉取模型失敗、模型很多時間歇出現 "model not found"，thinking 模型的結構化輸出改為單趟完成；`/api/show` 會回報模型的 thinking 選項；新增 `/v1/systemone` 決策模型（Nimble、Tev1、Clef），這類模型只標記為 `decision`，不會出現在聊天模型清單；帶已棄用的 `typical_p` 參數改為記錄警告而非失敗；llama.cpp 隨之更新。
+- 升級時會在背景下載新映像，只重建 Ollama 容器；Open WebUI、模型與聊天資料不受影響。
+- 若 `.conf` 裡自行設定過 `OLLAMA_IMAGE`，以你的設定為準，不會換版。
+- 建置工具更新：GitHub Actions 換到改用 Node 24 的大版本（checkout v7、upload-artifact v7、attest-build-provenance v4、action-gh-release v3），本機建置映像改用 Ubuntu 26.04。套件內容與先前的建置相同。
+
 ## v2.0.2
 
 - **升級時不再停機等下載。** 換了鎖定版本後，既有容器先以舊版繼續服務，背景下載新映像完成後才替換；下載失敗時維持舊版，記錄寫警告，App Center 仍顯示執行中。先前的版本會先停掉容器、改由狀態頁佔住網頁埠，若下載很慢（v0.11.4 發佈初期 ghcr 只有約 80 KB/s）就會長時間停機。
