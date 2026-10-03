@@ -102,6 +102,7 @@ case "\$1" in
         ;;
     pull)
         [ -f "$WORK/fake-pull-fail" ] && { echo "fake registry: connection reset" >&2; exit 1; }
+        [ -f "$WORK/fake-pull-slow" ] && sleep 5
         ;;
     run)
         case " \$* " in *" --gpus "*)
@@ -322,7 +323,17 @@ EOF
     "$APP" stop 2>/dev/null
     sed -i '/^OLLAMA_IMAGE=/d; /^WEBUI_IMAGE=/d' "$CONF_FILE"
     install_files "$ALT_IMAGE"
+    # On a NAS the post-install bgpull can reach its landing decision
+    # after App Center's start has begun (Container Station is busy with
+    # the install). With the old containers stopped for that moment, it
+    # must not put a status page on the web port the start is about to
+    # give back to the previous version.
+    touch "$WORK/fake-pull-slow"
     "$APP" bgpull 2>/dev/null
+    wait_for "bgpull reaches its pull" '[ -n "$(state)" ] && [ "$(state)" != stopped ]' 30
+    check "bgpull puts no status page over the stopped app" '! docker inspect "$C_WEBUI-landing" >/dev/null 2>&1'
+    check "bgpull reports updating" '[ "$(state)" = updating ]'
+    rm -f "$WORK/fake-pull-slow"
     T0=$(date +%s)
     "$APP" start 2>/dev/null
     T1=$(date +%s)
@@ -337,6 +348,8 @@ EOF
     check "still on network $LEGACY_NET" '[ "$(docker inspect -f "{{range \$k, \$v := .NetworkSettings.Networks}}{{\$k}}{{end}}" "$C_WEBUI")" = "$LEGACY_NET" ]'
     check "no second network created" '! docker network inspect openwebuiollama-net >/dev/null 2>&1'
     check "secret kept" '[ "$(sed -n "s/^WEBUI_SECRET_KEY=//p" "$CONF_FILE")" = "$SECRET" ]'
+    # The start's own job waited for the bgpull one; let it finish too.
+    wait_for "background downloads finished" '! pgrep -f "$APP _bg_pull" >/dev/null' 60
     check "exactly one recreate each" '[ "$(logged "Recreating .ollama. (settings changed)")" = 1 ] && [ "$(logged "Recreating .webui. (settings changed)")" = 1 ]'
     C6=$(created "$C_WEBUI")
     "$APP" restart 2>/dev/null

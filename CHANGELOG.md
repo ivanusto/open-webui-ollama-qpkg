@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.4
+
+- **修正升級時狀態頁可能搶走網頁埠。** 安裝後的背景下載若因 Container Station 忙於安裝而晚幾秒才執行，會剛好遇上舊容器被暫停、App Center 正要重新啟動它的空檔，看到 Open WebUI 沒在執行就開了狀態頁。2.0.3 在 NAS 上實際發生過：這次 Open WebUI 早約 0.1 秒拿到埠，狀態頁自行退出；若順序相反，App 會停機到新映像下載完。現在只要舊容器還在，背景下載就不開狀態頁，交給隨後的啟動讓舊版繼續服務。首次安裝（沒有舊容器）照舊顯示狀態頁。
+- 映像鎖定不變（Ollama 0.35.1、Open WebUI v0.11.4），從 2.0.3 升級不會下載也不會重建容器。
+- `tests/lifecycle.sh` 的升級情境加入這個順序，共 99 項。
+
 ## v2.0.3
 
 - Ollama 升到 `0.35.1`（`shared/images.lock` 換 digest）。這段期間上游修正了從 HuggingFace 拉取模型失敗、模型很多時間歇出現 "model not found"，thinking 模型的結構化輸出改為單趟完成；`/api/show` 會回報模型的 thinking 選項；新增 `/v1/systemone` 決策模型（Nimble、Tev1、Clef），這類模型只標記為 `decision`，不會出現在聊天模型清單；帶已棄用的 `typical_p` 參數改為記錄警告而非失敗；llama.cpp 隨之更新。

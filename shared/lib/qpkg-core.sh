@@ -962,7 +962,12 @@ main() {
             # A result left over from an earlier pull must never be read
             # as this pull's outcome.
             rm -f "$LOG_DIR/pull.rc"
-            if container_running "$(cvar "$WEB_ID" CONTAINER_NAME)"; then
+            if container_exists "$(cvar "$WEB_ID" CONTAINER_NAME)"; then
+                # The previous version is still there, and the start that
+                # follows (App Center's after an upgrade, or the one that
+                # spawned this job) runs it while the download continues.
+                # It may be stopped for a moment; a status page now would
+                # race it for the web port.
                 write_status "updating"
             else
                 write_status "downloading-image"
