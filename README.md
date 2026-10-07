@@ -144,7 +144,7 @@ Each release carries `SHA256SUMS` and a GitHub build provenance attestation:
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify OpenWebUIOllama_2.0.4_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.4
+gh attestation verify OpenWebUIOllama_2.0.5_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.5
 ```
 
 ## Building and testing

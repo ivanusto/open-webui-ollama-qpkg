@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.5
+
+- Ollama 升到 `0.40.0`（`shared/images.lock` 換 digest）。這版的重點是 Apple Silicon 改走 MLX，對 NAS 上的 Linux 與 NVIDIA 執行環境沒有影響。與 Linux 相關的變更：OpenAI 相容端點的工具結果改為保留在同一則訊息中（空結果以空陣列傳送、含圖片的結果保留圖片位置，不再插入 `[img]` 標記）；新增多模態 embeddings；embed 端點在請求過大時改回 413 而非 400；llama.cpp 隨之更新。
+- 升級時會在背景下載新映像，只重建 Ollama 容器；Open WebUI、模型與聊天資料不受影響。Open WebUI 仍為 v0.11.4。
+- 若 `.conf` 裡自行設定過 `OLLAMA_IMAGE`，以你的設定為準，不會換版。
+
 ## v2.0.4
 
 - **修正升級時狀態頁可能搶走網頁埠。** 安裝後的背景下載若因 Container Station 忙於安裝而晚幾秒才執行，會剛好遇上舊容器被暫停、App Center 正要重新啟動它的空檔，看到 Open WebUI 沒在執行就開了狀態頁。2.0.3 在 NAS 上實際發生過：這次 Open WebUI 早約 0.1 秒拿到埠，狀態頁自行退出；若順序相反，App 會停機到新映像下載完。現在只要舊容器還在，背景下載就不開狀態頁，交給隨後的啟動讓舊版繼續服務。首次安裝（沒有舊容器）照舊顯示狀態頁。
