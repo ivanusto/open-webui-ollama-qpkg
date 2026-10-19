@@ -280,6 +280,21 @@ check "fingerprints removed" '[ ! -f "$QPKG_ROOT_OVERRIDE/.conf-$C_OLLAMA" ] && 
 check "configuration kept" '[ -f "$CONF_FILE" ]'
 check "data kept" '[ -d "$WORK/data/ollama" ] && [ -d "$WORK/data/webui" ]'
 
+echo "== 11b. QTS's system-docker is never used"
+# At boot Container Station's CLI wrapper exists before it works, while
+# QTS's own daemon already answers (seen on QuTS hero h6.1).
+chmod -x "$WORK/cs/bin/docker"
+cat > "$WORK/cs/bin/system-docker" <<EOF
+#!/bin/sh
+touch "$WORK/system-docker-used"
+exec "$REAL_DOCKER" "\$@"
+EOF
+chmod +x "$WORK/cs/bin/system-docker"
+"$APP" diag >/dev/null 2>&1
+check "not picked while Container Station's CLI is unusable" '[ ! -f "$WORK/system-docker-used" ]'
+chmod +x "$WORK/cs/bin/docker"
+rm -f "$WORK/cs/bin/system-docker" "$WORK/system-docker-used"
+
 echo "== 12. in-place upgrade from v1.0.8"
 if ! git -C "$ROOT" cat-file -e v1.0.8:shared/openwebui-ollama.sh 2>/dev/null; then
     echo "  skip: tag v1.0.8 not available (shallow clone?)"

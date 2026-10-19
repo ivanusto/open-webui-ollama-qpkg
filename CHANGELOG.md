@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.1.0
+
+- Open WebUI 升到 `v0.12.3`（`shared/images.lock` 換 digest）。0.12 系列新增即時語音通話、可帶附屬檔案與版本紀錄的工作區技能、頻道訊息佇列；與 Ollama 相關的修正：原生函式呼叫在工具結果之後保留模型的系統提示、API 送來的 `max_tokens` 會限制 Ollama 的回覆長度、Ollama 連線的自訂標頭與驗證套用到所有請求、因長度上限截斷的回覆回報 `length`。上游標示含安全與存取控制修正，建議盡快更新。
+- **Open WebUI 這版有資料庫遷移，升級後不能直接退回 0.11.x。** 第一次啟動會自動遷移；要保留退路，請在升級前備份 Open WebUI 的資料目錄（`WEBUI_DATA_PATH`）。
+- Ollama 升到 `0.40.6`。0.40.2 起，舊版下載的模型在第一次執行時會於背景升級為 llama.cpp 格式，並暫時保留原檔作為退版備份，所以模型佔用的空間會暫時增加；上游表示之後的版本會自動清除這些備份，也可依 Ollama 0.40.2 的發行說明手動刪除（刪除後若退回 0.40 以前的版本，需要重新下載模型）。其他與 Linux 相關的變更：`ollama run --ask` 可直接使用決策模型、支援 Nemotron 3.5 與 q2_0 格式、推論時重用已驗證的 manifest 與已載入的模型、llama.cpp 隨之更新。
+- 升級時會在背景下載兩個新映像，舊版繼續服務，下載完成後兩個容器各重建一次；模型與聊天資料保留。
+- 若 `.conf` 裡自行設定過 `OLLAMA_IMAGE` 或 `WEBUI_IMAGE`，以你的設定為準，不會換版。
+- **修正開機時可能跑到 QTS 的系統 Docker。** 開機時 Container Station 的 docker 指令檔已在、卻還不能執行，先前的版本會退而使用 `system-docker`，那是 QTS 自己的 daemon（AI 服務中心、LLM Core 等都在上面），而且開機時已經能回應。結果套件在那裡建狀態頁、開始重新下載數 GB 的映像，原本的容器直到另一個背景工作接手前都沒有啟動（QuTS hero h6.1 Beta 上實際發生，開機後約 16 分鐘才恢復）。現在只使用 Container Station 的 docker，找不到時就繼續等待。若你的 NAS 曾發生過，可用 `system-docker ps -a` 檢查是否留有 `owui-frontend-landing`。
+- 安裝後移除安裝目錄的群組與其他人寫入權限。QTS 的 gid 0 是 administrators 群組，以 umask 002 建置的套件會讓所有管理者帳號都能修改以 root 執行的腳本；GitHub Release 的建置不受影響。
+- 建置工具：`actions/upload-artifact` 7.0.2。
+- `tests/lifecycle.sh` 加入不使用 `system-docker` 的情境，共 100 項。
+
 ## v2.0.5
 
 - Ollama 升到 `0.40.0`（`shared/images.lock` 換 digest）。這版的重點是 Apple Silicon 改走 MLX，對 NAS 上的 Linux 與 NVIDIA 執行環境沒有影響。與 Linux 相關的變更：OpenAI 相容端點的工具結果改為保留在同一則訊息中（空結果以空陣列傳送、含圖片的結果保留圖片位置，不再插入 `[img]` 標記）；新增多模態 embeddings；embed 端點在請求過大時改回 413 而非 400；llama.cpp 隨之更新。

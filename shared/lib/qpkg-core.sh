@@ -85,16 +85,17 @@ enabled_containers() {
     echo "$EC"
 }
 
-# QTS has no system docker; Container Station ships the CLI. Prefer the
-# plain docker binary so containers stay visible in the Container Station
-# UI, and fall back to system-docker.
+# Container Station ships the docker CLI; containers made with it show in
+# the Container Station UI. Never fall back to system-docker: that is
+# QTS's own daemon (AI Service Center, LLM Core, ...), which already
+# answers at boot while Container Station's CLI is not usable yet, so the
+# app landed there and pulled its images a second time. Finding nothing
+# makes the caller wait and try again.
 find_docker() {
     CS_DIR=$("$SBIN/getcfg" container-station Install_Path -f "$CONF" 2>/dev/null)
     for BIN in \
         "$CS_DIR/bin/docker" \
-        /usr/local/bin/docker \
-        /usr/local/bin/system-docker \
-        "$CS_DIR/bin/system-docker"
+        /usr/local/bin/docker
     do
         [ -n "$CS_DIR" ] || case "$BIN" in /bin/*) continue ;; esac
         [ -x "$BIN" ] && { echo "$BIN"; return 0; }

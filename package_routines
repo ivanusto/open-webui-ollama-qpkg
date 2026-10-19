@@ -56,6 +56,9 @@ pkg_post_install(){
     # developer's own on a workstation). On a NAS that uid can belong to a
     # real user, who could then edit scripts that QTS runs as root.
     chown -R 0:0 "${SYS_QPKG_DIR}"
+    # gid 0 is "administrators" on QTS, so a build made with umask 002
+    # would leave the scripts writable by every admin account.
+    chmod -R go-w "${SYS_QPKG_DIR}"
     # Keep the user's configuration across reinstalls and upgrades.
     if [ ! -f "${SYS_QPKG_DIR}/openwebui-ollama.conf" ]; then
         cp "${SYS_QPKG_DIR}/openwebui-ollama.conf.default" "${SYS_QPKG_DIR}/openwebui-ollama.conf"

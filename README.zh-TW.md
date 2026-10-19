@@ -161,7 +161,7 @@ ENABLE_OLLAMA="false"
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify OpenWebUIOllama_2.0.5_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.0.5
+gh attestation verify OpenWebUIOllama_2.1.0_x86_64.qpkg --repo ivanusto/open-webui-ollama-qpkg --source-ref refs/tags/v2.1.0
 ```
 
 ## 從原始碼建置與測試
