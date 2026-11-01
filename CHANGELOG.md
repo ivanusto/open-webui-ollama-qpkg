@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.1.1
+
+- Open WebUI 升到 `v0.12.5`（`shared/images.lock` 換 digest）。上游 0.12.4 與 0.12.5 都標示含安全修正、建議盡快更新（細節待 CVE 公告）。**0.12.4 起映像改為 Debian 13 上的 Python 3.12**（原為 Debian 12、Python 3.11），若在容器內以 pip 安裝過自訂函式或工具的套件，需改用支援 3.12 的版本。與 Ollama 相關的修正：Playground 的 Controls（如 Temperature、Seed）現在會送到 Ollama 模型；嵌入模型的查詢與內容前綴可在「管理員設定 > 文件」設定。
+- Ollama 升到 `0.40.13`。這段期間與 Linux 相關的變更：OpenAI 相容 Responses 與 Anthropic Messages 的串流在生成失敗時回報錯誤而非靜默結束、切換有無 thinking 的模型時續談不再失敗；新增 Flint、Nemotron 3.5 Bolt、d3、LFM3 等模型支援；llama.cpp 隨之更新。映像仍含 `cuda_v12`。
+- 升級時會在背景下載兩個新映像，舊版繼續服務，下載完成後兩個容器各重建一次；模型與聊天資料保留。從 v2.1.0 升級沒有資料庫遷移。在 QuTS hero h6.1 Beta、CPU 不支援 AVX、裝有 NVIDIA 顯示卡的 NAS 上實測：映像已預拉時網頁中斷 167 秒；Ollama 認到顯示卡（cuda_v12、驅動 12.9），生成為 100% GPU。
+- 兩個新映像各約 5 GB，加上舊版映像，Container Station 的磁碟空間可能不足，拉取時會出現 `no space left on device`。升級前請確認有足夠空間，並可移除不再使用的舊映像。
+- 若 `.conf` 裡自行設定過 `OLLAMA_IMAGE` 或 `WEBUI_IMAGE`，以你的設定為準，不會換版。
+
 ## v2.1.0
 
 - Open WebUI 升到 `v0.12.3`（`shared/images.lock` 換 digest）。0.12 系列新增即時語音通話、可帶附屬檔案與版本紀錄的工作區技能、頻道訊息佇列；與 Ollama 相關的修正：原生函式呼叫在工具結果之後保留模型的系統提示、API 送來的 `max_tokens` 會限制 Ollama 的回覆長度、Ollama 連線的自訂標頭與驗證套用到所有請求、因長度上限截斷的回覆回報 `length`。上游標示含安全與存取控制修正，建議盡快更新。
